@@ -74,7 +74,7 @@ public class EasyDDConfig : ModuleRules
 		});
 		
 		PrivateDependencyModuleNames.AddRange(new string[] {
-			// ... add private dependencies that you statically link with here ...	
+			"Projects", // IPluginManager, to detect Depot Network Fix
 		});
 		
 		DynamicallyLoadedModuleNames.AddRange(new string[] {

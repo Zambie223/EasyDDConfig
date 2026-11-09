@@ -29,8 +29,8 @@ public:
 	/** Returns this mod's live configuration root section, or null if the configuration is not registered. */
 	static UConfigPropertySection* GetConfigRootSection(const UWorld* World);
 
-	/** Sets one config value on this machine, persists it, and lets the normal change handler apply it. */
-	static bool SetConfigValue(const UWorld* World, const FString& Key, float NewValue, FString& OutMessage);
+	/** Sets one config value (a number, or true/false for switches) on this machine, persists it, and lets the normal change handler apply it. */
+	static bool SetConfigValue(const UWorld* World, const FString& Key, const FString& ValueText, FString& OutMessage);
 
 	/** Re-reads this mod's config file only and pushes its values like SetConfigValue does. */
 	static bool ReloadConfigFromDisk(const UWorld* World, FString& OutMessage);
@@ -51,6 +51,9 @@ private:
 	void RefreshGameObjects() const;
 	/** Reads this machine's config and returns sanitized multipliers (rounded to one decimal place and clamped). */
 	void ReadConfig(float& OutUploadMultiplier, float& OutStackMultiplier, bool bLogWarnings = true) const;
+	/** Reads the BatchDepotNetworkUpdates switch (true if missing) and hands it to the network batcher. */
+	bool ReadBatchingSetting() const;
+	void ApplyBatchingSetting() const;
 	void BindServerDelegates();
 	void UnbindServerDelegates();
 	void OnNextTickAfterBeginPlay();

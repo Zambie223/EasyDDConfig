@@ -32,16 +32,17 @@ namespace
 
 	FAutoConsoleCommandWithWorldArgsAndOutputDevice GSetCommand(
 		TEXT("EasyDD.Set"),
-		TEXT("EasyDD.Set <UploadSpeedMultiplier|StackLimitMultiplier> <Value> - changes and saves a setting on the host or server."),
+		TEXT("EasyDD.Set <UploadSpeedMultiplier|StackLimitMultiplier|BatchDepotNetworkUpdates> <Value> - changes and saves a setting on the host or server."),
 		FConsoleCommandWithWorldArgsAndOutputDeviceDelegate::CreateLambda([](const TArray<FString>& Args, UWorld* World, FOutputDevice& Ar)
 		{
-			if (Args.Num() != 2 || !Args[1].IsNumeric())
+			if (Args.Num() != 2)
 			{
-				Ar.Logf(TEXT("Usage: EasyDD.Set <%s|%s> <Value>"), EasyDD::KeyUploadSpeedMultiplier, EasyDD::KeyStackLimitMultiplier);
+				Ar.Logf(TEXT("Usage: EasyDD.Set <%s|%s> <number>, or EasyDD.Set %s <true|false>"),
+					EasyDD::KeyUploadSpeedMultiplier, EasyDD::KeyStackLimitMultiplier, EasyDD::KeyBatchDepotNetworkUpdates);
 				return;
 			}
 			FString Message;
-			AEasyDDConfigSubsystem::SetConfigValue(World, Args[0], FCString::Atof(*Args[1]), Message);
+			AEasyDDConfigSubsystem::SetConfigValue(World, Args[0], Args[1], Message);
 			Ar.Log(Message);
 		}));
 

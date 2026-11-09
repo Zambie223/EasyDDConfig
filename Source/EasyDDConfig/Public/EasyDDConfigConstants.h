@@ -13,4 +13,5 @@ namespace EasyDD
 	/** Keys in the configuration's root section. Changing these renames the values in users' config files. */
 	inline constexpr const TCHAR* KeyUploadSpeedMultiplier = TEXT("UploadSpeedMultiplier");
 	inline constexpr const TCHAR* KeyStackLimitMultiplier = TEXT("StackLimitMultiplier");
+	inline constexpr const TCHAR* KeyBatchDepotNetworkUpdates = TEXT("BatchDepotNetworkUpdates");
 }

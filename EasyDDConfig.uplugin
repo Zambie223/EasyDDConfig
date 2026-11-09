@@ -1,8 +1,8 @@
 {
 	"FileVersion": 3,
-	"Version": 1,
-	"VersionName": "0.1.0",
-	"SemVersion": "0.1.0",
+	"Version": 2,
+	"VersionName": "0.2.0",
+	"SemVersion": "0.2.0",
 	"GameVersion": ">=517554",
 	"FriendlyName": "Easy DD Config",
 	"Description": "Set the Dimensional Depot's upload speed and stack limit from the Mod Options menu. Research upgrades still apply on top.",

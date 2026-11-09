@@ -24,14 +24,16 @@ Open **Mods → Easy DD Config** from the main menu or the pause menu. Changes a
 |---|---|---|---|
 | Upload speed multiplier | 1.0 | 0.1 – 20 | Multiplies upload speed at every research level. Vanilla is 15 items/min per uploader at base and 240 with all research, so 2.0 gives 30 and 480. It also speeds up your own upload slots, as vanilla research does. |
 | Stack limit multiplier | 1.0 | 1 – 100 | Multiplies how many stacks of each item the depot can hold, including research upgrades. Vanilla is 1 stack at base and 5 with all research, so 3.0 gives 3 and 15. It can't go below vanilla, and the total is capped at 500 stacks per item type. |
+| Batch depot network updates (multiplayer) | On | On / Off | Only matters when you host or run a dedicated server. See [Multiplayer](#multiplayer). |
 
-A value of 1.0 behaves exactly like the base game. Values are rounded to one decimal place when applied, so 2.37 is used as 2.4.
+A multiplier of 1.0 behaves exactly like the base game. Multipliers are rounded to one decimal place when applied, so 2.37 is used as 2.4.
 
 ## Multiplayer
 
 - **Install the mod on the server or host and on every player's game.** Players without it can't join.
 - **The host's settings are used, or the server's on a dedicated server.** Changing Mod Options as a joined player does nothing while you are connected. Your own settings come back when you play your own world.
-- **Bigger stack limits mean more network traffic.** The game sends a network message to every player for each item uploaded. In vanilla, a large factory's depot is often full, so uploads stop and that traffic stops with them. A higher stack limit keeps every uploader running. In testing, a factory with 660 uploaders went from 0 to about 2,400 messages per second, peaking above 5,000 per second while queued items drained at high upload speed. A player on the same PC stayed connected through it, but internet connections have more delay and can overload sooner, which disconnects players ("Outgoing reliable buffer overflow"). If you use high multipliers in multiplayer, also install [Depot Network Fix](https://ficsit.app/mod/DepotNetworkFix) on the server.
+- **Depot network messages are batched, so busy depots don't disconnect players.** The game sends a network message to every player each time a depot item count changes, and disconnects a player whose game falls 511 messages behind ("Outgoing reliable buffer overflow"), for example while loading in after joining. Faster uploads and bigger stack limits mean many more of these messages: without batching, a factory with 660 uploaders went from 0 to about 2,400 per second, peaking above 5,000. With **Batch depot network updates** on (the default), the host or server keeps the latest count of each item and sends the changed ones together about once a second, and waits while a player's game is behind. Depot counts on screen then update about once a second instead of instantly; what's actually in the depot is unaffected. The setting does nothing in single player.
+  - This works like the [Depot Network Fix](https://ficsit.app/mod/DepotNetworkFix) mod, whose approach it follows with its author's permission, so you don't need both. If Depot Network Fix is installed too, this mod leaves the job to it.
 
 ### Dedicated servers
 
@@ -42,7 +44,8 @@ Dedicated servers have no menu. Use either of these:
   {
       "UploadSpeedMultiplier": 2,
       "StackLimitMultiplier": 3,
-      "SML_ModVersion_DoNotChange": "0.1.0"
+      "BatchDepotNetworkUpdates": true,
+      "SML_ModVersion_DoNotChange": "0.2.0"
   }
   ```
   Then restart the server, or run `EasyDD.Reload` (below).
@@ -50,8 +53,8 @@ Dedicated servers have no menu. Use either of these:
 
   | Command | Effect |
   |---|---|
-  | `EasyDD.Status` | Shows the vanilla, configured and effective values. |
-  | `EasyDD.Set UploadSpeedMultiplier 2` | Changes and saves a setting. It applies within a second. |
+  | `EasyDD.Status` | Shows the vanilla, configured and effective values, and what network batching has done. |
+  | `EasyDD.Set UploadSpeedMultiplier 2` | Changes and saves a setting. It applies within a second. Switches take `true` or `false`, e.g. `EasyDD.Set BatchDepotNetworkUpdates false`. |
   | `EasyDD.Reload` | Re-reads `EasyDDConfig.cfg` after you edit it. |
 
 ## Limits and notes
@@ -69,6 +72,12 @@ Version 0.1.0 has been tested on Windows in single player, as a listen-server ho
 - host values reaching a connected player, and a joined player's own settings being ignored
 - upload speed and its limit, lowering limits, and removing the mod
 - network load with a connected player
+
+Version 0.2.0 adds network batching, tested on a Windows dedicated server with a joined player, using a factory with 660 uploaders at ×20 upload speed and ×20 stack limit:
+- about 13,000 depot count updates a minute were sent as about 1,700 messages, and while the player was loading in, sends waited until its queue (peaking at 280 of the 511 limit) went down
+- the player stayed connected, and turning the setting off and on (console and config file) took effect immediately
+- with Depot Network Fix present, this mod left the job to it
+- the mod also loads and hooks correctly on a Linux dedicated server
 
 It has not been tested in an internet game across several PCs; all multiplayer tests ran on one PC. The network-load figures above may be worse over real connections.
 

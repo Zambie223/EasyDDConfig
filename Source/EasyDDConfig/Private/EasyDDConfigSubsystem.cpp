@@ -3,10 +3,12 @@
 #include "EasyDDConfigConstants.h"
 #include "EasyDDConfigLog.h"
 #include "EasyDDConfigMath.h"
+#include "EasyDDNetworkBatcher.h"
 
 #include "Buildables/FGCentralStorageContainer.h"
 #include "Configuration/ConfigManager.h"
 #include "Configuration/ModConfiguration.h"
+#include "Configuration/Properties/ConfigPropertyBool.h"
 #include "Configuration/Properties/ConfigPropertyFloat.h"
 #include "Configuration/Properties/ConfigPropertySection.h"
 #include "Dom/JsonObject.h"
@@ -104,7 +106,7 @@ namespace
 		}
 	}
 
-	UConfigPropertyFloat* FindFloatProperty(UConfigPropertySection* Section, const FString& Key, FString* OutCanonicalKey = nullptr)
+	UConfigProperty* FindProperty(UConfigPropertySection* Section, const FString& Key, FString* OutCanonicalKey = nullptr)
 	{
 		if (!Section)
 		{
@@ -118,16 +120,53 @@ namespace
 				{
 					*OutCanonicalKey = Pair.Key;
 				}
-				return Cast<UConfigPropertyFloat>(Pair.Value);
+				return Pair.Value;
 			}
 		}
 		return nullptr;
 	}
 
-	bool IsKnownKey(const FString& Key)
+	UConfigPropertyFloat* FindFloatProperty(UConfigPropertySection* Section, const FString& Key, FString* OutCanonicalKey = nullptr)
+	{
+		return Cast<UConfigPropertyFloat>(FindProperty(Section, Key, OutCanonicalKey));
+	}
+
+	UConfigPropertyBool* FindBoolProperty(UConfigPropertySection* Section, const FString& Key, FString* OutCanonicalKey = nullptr)
+	{
+		return Cast<UConfigPropertyBool>(FindProperty(Section, Key, OutCanonicalKey));
+	}
+
+	bool IsFloatKey(const FString& Key)
 	{
 		return Key.Equals(EasyDD::KeyUploadSpeedMultiplier, ESearchCase::IgnoreCase)
 			|| Key.Equals(EasyDD::KeyStackLimitMultiplier, ESearchCase::IgnoreCase);
+	}
+
+	bool IsBoolKey(const FString& Key)
+	{
+		return Key.Equals(EasyDD::KeyBatchDepotNetworkUpdates, ESearchCase::IgnoreCase);
+	}
+
+	/** Accepts true/false, on/off, yes/no and 1/0. */
+	bool ParseSwitch(const FString& Text, bool& OutValue)
+	{
+		for (const TCHAR* Word : {TEXT("true"), TEXT("on"), TEXT("yes"), TEXT("1")})
+		{
+			if (Text.Equals(Word, ESearchCase::IgnoreCase))
+			{
+				OutValue = true;
+				return true;
+			}
+		}
+		for (const TCHAR* Word : {TEXT("false"), TEXT("off"), TEXT("no"), TEXT("0")})
+		{
+			if (Text.Equals(Word, ESearchCase::IgnoreCase))
+			{
+				OutValue = false;
+				return true;
+			}
+		}
+		return false;
 	}
 }
 
@@ -293,12 +332,27 @@ void AEasyDDConfigSubsystem::ReadConfig(float& OutUploadMultiplier, float& OutSt
 	}
 }
 
+bool AEasyDDConfigSubsystem::ReadBatchingSetting() const
+{
+	if (const UConfigPropertyBool* Batching = FindBoolProperty(GetConfigRootSection(GetWorld()), EasyDD::KeyBatchDepotNetworkUpdates))
+	{
+		return Batching->Value;
+	}
+	return true;
+}
+
+void AEasyDDConfigSubsystem::ApplyBatchingSetting() const
+{
+	EasyDD::NetBatch::SetEnabled(ReadBatchingSetting());
+}
+
 void AEasyDDConfigSubsystem::ApplyServer(const TCHAR* Reason)
 {
 	if (!HasAuthority())
 	{
 		return;
 	}
+	ApplyBatchingSetting();
 	CaptureVanillaOnce();
 	if (!GVanilla.Values.IsValid())
 	{
@@ -428,7 +482,9 @@ void AEasyDDConfigSubsystem::OnDebounceElapsed()
 		ReadConfig(Upload, Stack, /*bLogWarnings=*/false);
 		if (Upload == AppliedUploadMultiplier && Stack == AppliedStackMultiplier)
 		{
-			UE_LOG(LogEasyDDConfig, Verbose, TEXT("Config change event with unchanged values (upload x%.1f, stacks x%.1f); nothing to apply"), Upload, Stack);
+			// The depot settings are unchanged; the batching switch is cheap to apply and logs only when it flips.
+			ApplyBatchingSetting();
+			UE_LOG(LogEasyDDConfig, Verbose, TEXT("Config change event with unchanged multipliers (upload x%.1f, stacks x%.1f); nothing else to apply"), Upload, Stack);
 			return;
 		}
 	}
@@ -490,24 +546,48 @@ void AEasyDDConfigSubsystem::ApplyReplicatedValuesLocally()
 		AppliedUploadMultiplier, AppliedDefaultTimeToUpload, AppliedStackMultiplier, AppliedDefaultItemStackLimit);
 }
 
-bool AEasyDDConfigSubsystem::SetConfigValue(const UWorld* World, const FString& Key, const float NewValue, FString& OutMessage)
+bool AEasyDDConfigSubsystem::SetConfigValue(const UWorld* World, const FString& Key, const FString& ValueText, FString& OutMessage)
 {
 	if (World && World->GetNetMode() == NM_Client)
 	{
 		OutMessage = TEXT("Refused: this is a client. Settings come from the host or server.");
 		return false;
 	}
-	if (!IsKnownKey(Key))
+	UConfigPropertySection* Root = GetConfigRootSection(World);
+
+	if (IsBoolKey(Key))
 	{
-		OutMessage = FString::Printf(TEXT("Unknown key '%s'. Valid keys: %s, %s"), *Key, EasyDD::KeyUploadSpeedMultiplier, EasyDD::KeyStackLimitMultiplier);
+		bool bNewValue = false;
+		if (!ParseSwitch(ValueText, bNewValue))
+		{
+			OutMessage = FString::Printf(TEXT("Refused: %s takes true or false."), EasyDD::KeyBatchDepotNetworkUpdates);
+			return false;
+		}
+		FString CanonicalKey;
+		UConfigPropertyBool* Property = FindBoolProperty(Root, Key, &CanonicalKey);
+		if (!Property)
+		{
+			OutMessage = FString::Printf(TEXT("Configuration '%s' or key '%s' not found."), EasyDD::ModReference, *Key);
+			return false;
+		}
+		Property->Value = bNewValue;
+		Property->MarkDirty();
+		OutMessage = FString::Printf(TEXT("%s set to %s. Applies within a second."), *CanonicalKey, bNewValue ? TEXT("true") : TEXT("false"));
+		return true;
+	}
+
+	if (!IsFloatKey(Key))
+	{
+		OutMessage = FString::Printf(TEXT("Unknown key '%s'. Valid keys: %s, %s, %s"), *Key,
+			EasyDD::KeyUploadSpeedMultiplier, EasyDD::KeyStackLimitMultiplier, EasyDD::KeyBatchDepotNetworkUpdates);
 		return false;
 	}
-	if (!FMath::IsFinite(NewValue))
+	const float NewValue = FCString::Atof(*ValueText);
+	if (!ValueText.IsNumeric() || !FMath::IsFinite(NewValue))
 	{
 		OutMessage = TEXT("Refused: value must be a finite number.");
 		return false;
 	}
-	UConfigPropertySection* Root = GetConfigRootSection(World);
 	FString CanonicalKey;
 	UConfigPropertyFloat* Property = FindFloatProperty(Root, Key, &CanonicalKey);
 	if (!Property)
@@ -580,6 +660,15 @@ bool AEasyDDConfigSubsystem::ReloadConfigFromDisk(const UWorld* World, FString& 
 			++Updated;
 		}
 	}
+	bool bSwitch = true;
+	if (UConfigPropertyBool* Batching = FindBoolProperty(Root, EasyDD::KeyBatchDepotNetworkUpdates))
+	{
+		if (Json->TryGetBoolField(EasyDD::KeyBatchDepotNetworkUpdates, bSwitch))
+		{
+			Batching->Value = bSwitch;
+			++Updated;
+		}
+	}
 	if (Updated == 0)
 	{
 		OutMessage = FString::Printf(TEXT("No usable values found in %s; nothing changed."), *FilePath);
@@ -614,7 +703,8 @@ void AEasyDDConfigSubsystem::DescribeStatus(FOutputDevice& Ar) const
 		float Upload = DefaultMultiplier;
 		float Stack = DefaultMultiplier;
 		ReadConfig(Upload, Stack);
-		Lines.Add(FString::Printf(TEXT("  Config on this machine: %s=%.2f, %s=%.2f"), EasyDD::KeyUploadSpeedMultiplier, Upload, EasyDD::KeyStackLimitMultiplier, Stack));
+		Lines.Add(FString::Printf(TEXT("  Config on this machine: %s=%.2f, %s=%.2f, %s=%s"), EasyDD::KeyUploadSpeedMultiplier, Upload, EasyDD::KeyStackLimitMultiplier, Stack,
+			EasyDD::KeyBatchDepotNetworkUpdates, ReadBatchingSetting() ? TEXT("true") : TEXT("false")));
 	}
 	else
 	{
@@ -645,6 +735,7 @@ void AEasyDDConfigSubsystem::DescribeStatus(FOutputDevice& Ar) const
 		}
 	}
 	Lines.Add(FString::Printf(TEXT("  Uploaders in world: %d"), Containers));
+	EasyDD::NetBatch::DescribeStatus(World, Lines);
 
 	for (const FString& Line : Lines)
 	{

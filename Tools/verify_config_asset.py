@@ -20,14 +20,17 @@ if root is None:
 unreal.log(f"[EasyDDConfig] VERIFY root_section class = {root.get_class().get_path_name()} outer = {root.get_outer().get_path_name()}")
 unreal.log(f"[EasyDDConfig] VERIFY root_section widget_type = {root.get_editor_property('widget_type')}")
 for key, prop in root.get_editor_property("section_properties").items():
+    is_float = "Float" in prop.get_class().get_name()
     unreal.log(
-        "[EasyDDConfig] VERIFY {} -> {} default={} min={} max={} widget={} world_reload={} name='{}'".format(
+        "[EasyDDConfig] VERIFY {} -> {} default={} {} world_reload={} name='{}'".format(
             key,
             prop.get_class().get_name(),
             prop.get_editor_property("default_value"),
-            prop.get_editor_property("min_value"),
-            prop.get_editor_property("max_value"),
-            prop.get_editor_property("widget_type"),
+            "min={} max={} widget={}".format(
+                prop.get_editor_property("min_value"),
+                prop.get_editor_property("max_value"),
+                prop.get_editor_property("widget_type"),
+            ) if is_float else "",
             prop.get_editor_property("requires_world_reload"),
             prop.get_editor_property("display_name"),
         )

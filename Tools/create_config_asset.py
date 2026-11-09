@@ -38,6 +38,18 @@ PROPERTIES = [
         "min": 1.0,
         "max": 100.0,
     },
+    {
+        "key": "BatchDepotNetworkUpdates",
+        "type": "bool",
+        "display_name": "Batch depot network updates (multiplayer)",
+        "tooltip": (
+            "Only matters when you host or run a dedicated server. Merges the Dimensional Depot's item-count messages and sends\n"
+            "them about once a second, so busy depots don't disconnect players with \"Outgoing reliable buffer overflow\".\n"
+            "Depot counts on screen then update about once a second instead of instantly. Leave it on unless you see a problem.\n"
+            + HOST_NOTE
+        ),
+        "default": True,
+    },
 ]
 
 
@@ -95,7 +107,10 @@ def main():
     cdo = unreal.get_default_object(cls)
 
     section_cls = load_sml_class("BP_ConfigPropertySection")
-    float_cls = load_sml_class("BP_ConfigPropertyFloat")
+    property_classes = {
+        "float": load_sml_class("BP_ConfigPropertyFloat"),
+        "bool": load_sml_class("BP_ConfigPropertyBool"),
+    }
 
     cdo.modify()
     root = get_or_create_subobject(cdo.get_editor_property("root_section"), section_cls, cdo, "RootSection")
@@ -104,15 +119,17 @@ def main():
 
     section_properties = {}
     for spec in PROPERTIES:
-        prop = get_or_create_subobject(existing_properties.get(spec["key"]), float_cls, root, spec["key"])
+        kind = spec.get("type", "float")
+        prop = get_or_create_subobject(existing_properties.get(spec["key"]), property_classes[kind], root, spec["key"])
         prop.modify()
         prop.set_editor_property("display_name", spec["display_name"])
         prop.set_editor_property("tooltip", spec["tooltip"])
         prop.set_editor_property("default_value", spec["default"])
         prop.set_editor_property("value", spec["default"])
-        prop.set_editor_property("widget_type", unreal.CP_FloatWidgetType.CPF_SPINBOX)
-        prop.set_editor_property("min_value", spec["min"])
-        prop.set_editor_property("max_value", spec["max"])
+        if kind == "float":
+            prop.set_editor_property("widget_type", unreal.CP_FloatWidgetType.CPF_SPINBOX)
+            prop.set_editor_property("min_value", spec["min"])
+            prop.set_editor_property("max_value", spec["max"])
         prop.set_editor_property("requires_world_reload", False)
         section_properties[spec["key"]] = prop
     root.set_editor_property("section_properties", section_properties)
@@ -124,7 +141,7 @@ def main():
     config_id.set_editor_property("config_category", "")
     cdo.set_editor_property("config_id", config_id)
     cdo.set_editor_property("display_name", "Easy DD Config")
-    cdo.set_editor_property("description", "Dimensional Depot upload speed and stack limit. 1.0 = vanilla.")
+    cdo.set_editor_property("description", "Dimensional Depot upload speed and stack limit (1.0 = vanilla), and network batching for multiplayer.")
     cdo.set_editor_property("root_section", root)
 
     if not unreal.EditorAssetLibrary.save_loaded_asset(blueprint, False):
