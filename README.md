@@ -45,7 +45,7 @@ Dedicated servers have no menu. Use either of these:
       "UploadSpeedMultiplier": 2,
       "StackLimitMultiplier": 3,
       "BatchDepotNetworkUpdates": true,
-      "SML_ModVersion_DoNotChange": "0.2.0"
+      "SML_ModVersion_DoNotChange": "0.2.1"
   }
   ```
   Then restart the server, or run `EasyDD.Reload` (below).
@@ -73,11 +73,12 @@ Version 0.1.0 has been tested on Windows in single player, as a listen-server ho
 - upload speed and its limit, lowering limits, and removing the mod
 - network load with a connected player
 
-Version 0.2.0 adds network batching, tested on a Windows dedicated server with a joined player, using a factory with 660 uploaders at ×20 upload speed and ×20 stack limit:
-- about 13,000 depot count updates a minute were sent as about 1,700 messages, and while the player was loading in, sends waited until its queue (peaking at 280 of the 511 limit) went down
-- the player stayed connected, and turning the setting off and on (console and config file) took effect immediately
-- with Depot Network Fix present, this mod left the job to it
-- the mod also loads and hooks correctly on a Linux dedicated server
+Version 0.2.0 added network batching, tested with ×20 upload speed and ×20 stack limit:
+- **Windows dedicated server, a factory with 660 uploaders, one joined player:** about 13,000 depot count updates a minute were sent as about 1,700 messages. While the player was loading in, sends waited until its queue (peaking at 280 of the 511 limit) went down, and the player stayed connected.
+- **Listen-server host, a factory with 16 uploaders, one joined player:** about 3,000 updates a minute were sent as about 550 messages, and the player stayed connected.
+- Turning the setting off and on took effect immediately from the Mod Options menu, the console and the config file.
+- When a mod named Depot Network Fix is installed, this mod detects it and leaves the job to it. That detection was checked with a placeholder; the two mods have not been run together.
+- The mod also loads and hooks correctly on a Linux dedicated server.
 
 It has not been tested in an internet game across several PCs; all multiplayer tests ran on one PC. The network-load figures above may be worse over real connections.
 

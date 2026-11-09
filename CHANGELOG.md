@@ -2,6 +2,14 @@
 
 Changes made after the first public release are listed here.
 
+## 0.2.1 (2026-11-09)
+
+### Changed
+- The mod's description on the Mods page now mentions the network batching.
+- README: test status updated (listen-server host and the Mod Options switch are now tested).
+
+Because the version number changed, the host or server and every player need 0.2.1; 0.2.0 and 0.2.1 can't join each other.
+
 ## 0.2.0 (2026-11-09)
 
 ### Added
