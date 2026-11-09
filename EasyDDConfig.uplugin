@@ -1,0 +1,33 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"SemVersion": "0.1.0",
+	"GameVersion": ">=517554",
+	"FriendlyName": "Easy DD Config",
+	"Description": "Set the Dimensional Depot's upload speed and stack limit from the Mod Options menu. Research upgrades still apply on top.",
+	"Category": "Modding",
+	"CreatedBy": "Zambie223",
+	"CreatedByURL": "https://github.com/Zambie223",
+	"DocsURL": "https://github.com/Zambie223/EasyDDConfig#readme",
+	"MarketplaceURL": "",
+	"SupportURL": "https://github.com/Zambie223/EasyDDConfig/issues",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "EasyDDConfig",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "SML",
+			"Enabled": true,
+			"SemVersion": "^3.12.0"
+		}
+	]
+}
