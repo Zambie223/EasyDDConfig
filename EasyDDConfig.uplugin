@@ -1,6 +1,6 @@
 {
 	"FileVersion": 3,
-	"Version": 3,
+	"Version": 0,
 	"VersionName": "0.2.1",
 	"SemVersion": "0.2.1",
 	"GameVersion": ">=517554",

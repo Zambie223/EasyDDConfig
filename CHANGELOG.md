@@ -2,6 +2,11 @@
 
 Changes made after the first public release are listed here.
 
+## Unreleased
+
+### Fixed
+- The plugin's `Version` number now matches the major version (0), which the Satisfactory Mod Repository requires. The mod version is still 0.2.1, so copies from GitHub and from the Satisfactory Mod Repository work together.
+
 ## 0.2.1 (2026-11-09)
 
 ### Changed
