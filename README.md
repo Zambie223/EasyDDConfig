@@ -6,7 +6,9 @@ Set the Dimensional Depot's **upload speed** and **stack limit** from the in-gam
 
 You need Satisfactory 1.2 (build 517554 or newer) with Satisfactory Mod Loader (SML) 3.12 or newer installed.
 
-The mod isn't on the Satisfactory Mod Repository yet, so Satisfactory Mod Manager can't install it. Install a release from this repository by hand:
+**The easy way:** install [Easy DD Config from the Satisfactory Mod Repository](https://ficsit.app/mod/EasyDDConfig) with [Satisfactory Mod Manager](https://github.com/satisfactorymodding/SatisfactoryModManager/releases/latest). It installs SML for you.
+
+**By hand**, from this repository's releases:
 
 1. From the Releases page, download the zip for where it will run:
    - `EasyDDConfig-Windows.zip` for your game

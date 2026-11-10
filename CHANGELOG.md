@@ -7,6 +7,9 @@ Changes made after the first public release are listed here.
 ### Fixed
 - The plugin's `Version` number now matches the major version (0), which the Satisfactory Mod Repository requires. The mod version is still 0.2.1, so copies from GitHub and from the Satisfactory Mod Repository work together.
 
+### Changed
+- README: the mod is now on the Satisfactory Mod Repository, so it can be installed with Satisfactory Mod Manager.
+
 ## 0.2.1 (2026-11-09)
 
 ### Changed
