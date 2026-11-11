@@ -14,4 +14,7 @@ namespace EasyDD
 	inline constexpr const TCHAR* KeyUploadSpeedMultiplier = TEXT("UploadSpeedMultiplier");
 	inline constexpr const TCHAR* KeyStackLimitMultiplier = TEXT("StackLimitMultiplier");
 	inline constexpr const TCHAR* KeyBatchDepotNetworkUpdates = TEXT("BatchDepotNetworkUpdates");
+	inline constexpr const TCHAR* KeyAllowExtremeMultipliers = TEXT("AllowExtremeMultipliers");
+	/** Dedicated servers only, hidden in the Mods menu: lets server admins change the settings from their own Mods menu. */
+	inline constexpr const TCHAR* KeyAllowAdminMenuChanges = TEXT("AllowAdminMenuChanges");
 }

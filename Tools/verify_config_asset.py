@@ -22,7 +22,7 @@ unreal.log(f"[EasyDDConfig] VERIFY root_section widget_type = {root.get_editor_p
 for key, prop in root.get_editor_property("section_properties").items():
     is_float = "Float" in prop.get_class().get_name()
     unreal.log(
-        "[EasyDDConfig] VERIFY {} -> {} default={} {} world_reload={} name='{}'".format(
+        "[EasyDDConfig] VERIFY {} -> {} default={} {} world_reload={} hidden={} name='{}'".format(
             key,
             prop.get_class().get_name(),
             prop.get_editor_property("default_value"),
@@ -32,6 +32,7 @@ for key, prop in root.get_editor_property("section_properties").items():
                 prop.get_editor_property("widget_type"),
             ) if is_float else "",
             prop.get_editor_property("requires_world_reload"),
+            prop.get_editor_property("hidden"),
             prop.get_editor_property("display_name"),
         )
     )

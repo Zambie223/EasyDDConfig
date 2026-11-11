@@ -19,6 +19,20 @@ public:
 	UEasyDDConfigGameInstanceModule();
 
 	virtual void DispatchLifecycleEvent(ELifecyclePhase Phase) override;
+
+private:
+	/**
+	 * While "Allow extreme multipliers" is on, the stack multiplier's tooltip also states the game's technical limit
+	 * (which depends on the largest stack size of any loaded item). SML builds the Mods menu from the tooltips when it
+	 * opens, so a change shows the next time the menu is opened.
+	 */
+	UFUNCTION()
+	void UpdateStackTooltip();
+
+	/** The stack multiplier's tooltip from the asset, before anything is appended. */
+	FText BaseStackTooltip;
+	bool bHaveBaseStackTooltip = false;
+	TWeakObjectPtr<class UConfigPropertySection> BoundRootSection;
 };
 
 /** Root game world module: spawns the depot subsystem in game worlds (never in the main menu). */

@@ -3,7 +3,9 @@
 #include "EasyDDConfigConstants.h"
 #include "EasyDDConfigLog.h"
 #include "EasyDDConfigMath.h"
+#include "EasyDDConfigRCO.h"
 #include "EasyDDNetworkBatcher.h"
+#include "EasyDDUploadBooster.h"
 
 #include "Buildables/FGCentralStorageContainer.h"
 #include "Configuration/ConfigManager.h"
@@ -17,7 +19,12 @@
 #include "EngineUtils.h"
 #include "FGCentralStorageSettings.h"
 #include "FGCentralStorageSubsystem.h"
+#include "FGChatManager.h"
+#include "FGPlayerController.h"
 #include "FGUnlockSubsystem.h"
+#include "Server/FGDSAuthenticationTypes.h"
+#include "Resources/FGItemDescriptor.h"
+#include "UObject/UObjectIterator.h"
 #include "Misc/FileHelper.h"
 #include "Misc/OutputDeviceNull.h"
 #include "Misc/Paths.h"
@@ -144,7 +151,9 @@ namespace
 
 	bool IsBoolKey(const FString& Key)
 	{
-		return Key.Equals(EasyDD::KeyBatchDepotNetworkUpdates, ESearchCase::IgnoreCase);
+		return Key.Equals(EasyDD::KeyBatchDepotNetworkUpdates, ESearchCase::IgnoreCase)
+			|| Key.Equals(EasyDD::KeyAllowExtremeMultipliers, ESearchCase::IgnoreCase)
+			|| Key.Equals(EasyDD::KeyAllowAdminMenuChanges, ESearchCase::IgnoreCase);
 	}
 
 	/** Accepts true/false, on/off, yes/no and 1/0. */
@@ -212,6 +221,12 @@ void AEasyDDConfigSubsystem::GetLifetimeReplicatedProps(TArray<FLifetimeProperty
 	DOREPLIFETIME_CONDITION_NOTIFY(AEasyDDConfigSubsystem, AppliedUploadMultiplier, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(AEasyDDConfigSubsystem, AppliedStackMultiplier, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME(AEasyDDConfigSubsystem, AppliedResearchStackBonus);
+	DOREPLIFETIME(AEasyDDConfigSubsystem, ServerConfigUpload);
+	DOREPLIFETIME(AEasyDDConfigSubsystem, ServerConfigStack);
+	DOREPLIFETIME(AEasyDDConfigSubsystem, bServerConfigBatching);
+	DOREPLIFETIME(AEasyDDConfigSubsystem, bServerConfigExtreme);
+	DOREPLIFETIME(AEasyDDConfigSubsystem, bServerAllowsAdminMenu);
+	DOREPLIFETIME(AEasyDDConfigSubsystem, bServerConfigValid);
 }
 
 void AEasyDDConfigSubsystem::Init()
@@ -252,6 +267,11 @@ void AEasyDDConfigSubsystem::BeginPlay()
 	{
 		UE_LOG(LogEasyDDConfig, Log, TEXT("BeginPlay on %s; using the host's values"), NetModeName(GetWorld()));
 		ApplyReplicatedValuesLocally();
+		// A dedicated server's admin gets the server's values in their menu; privilege can arrive or change later.
+		if (GetWorld() && GetWorld()->GetNetMode() == NM_Client)
+		{
+			GetWorldTimerManager().SetTimer(AdminCheckTimer, this, &AEasyDDConfigSubsystem::OnAdminCheck, 1.0f, true);
+		}
 		// Clients have no console by default, so put one status snapshot in the client log for support.
 		GetWorldTimerManager().SetTimer(ClientStatusTimer, this, &AEasyDDConfigSubsystem::OnClientStatusSnapshot, ClientStatusDelaySeconds, false);
 	}
@@ -265,6 +285,10 @@ void AEasyDDConfigSubsystem::OnClientStatusSnapshot() const
 
 void AEasyDDConfigSubsystem::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (bMirroring)
+	{
+		StopMirroring(TEXT("left the server"));
+	}
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearAllTimersForObject(this);
@@ -319,16 +343,19 @@ void AEasyDDConfigSubsystem::ReadConfig(float& OutUploadMultiplier, float& OutSt
 
 	const float RawUpload = OutUploadMultiplier;
 	const float RawStack = OutStackMultiplier;
+	const bool bExtreme = ReadExtremeSetting();
+	const FMultiplierBounds Bounds = FMultiplierBounds::For(bExtreme);
+	const TCHAR* ExtremeHint = bExtreme ? TEXT("") : TEXT(" (Allow extreme multipliers is off)");
 	// Sanitizing also rounds to one decimal place; only clamping is worth a warning.
-	OutUploadMultiplier = SanitizeMultiplier(RawUpload, MinUploadMultiplier, MaxUploadMultiplier);
-	OutStackMultiplier = SanitizeMultiplier(RawStack, MinStackMultiplier, MaxStackMultiplier);
-	if (bLogWarnings && IsOutsideRange(RawUpload, MinUploadMultiplier, MaxUploadMultiplier))
+	OutUploadMultiplier = SanitizeMultiplier(RawUpload, Bounds.MinUpload, Bounds.MaxUpload);
+	OutStackMultiplier = SanitizeMultiplier(RawStack, Bounds.MinStack, Bounds.MaxStack);
+	if (bLogWarnings && IsOutsideRange(RawUpload, Bounds.MinUpload, Bounds.MaxUpload))
 	{
-		UE_LOG(LogEasyDDConfig, Warning, TEXT("%s = %f is outside %.1f-%.1f; using %.1f"), EasyDD::KeyUploadSpeedMultiplier, RawUpload, MinUploadMultiplier, MaxUploadMultiplier, OutUploadMultiplier);
+		UE_LOG(LogEasyDDConfig, Warning, TEXT("%s = %f is outside %.1f-%.1f%s; using %.1f"), EasyDD::KeyUploadSpeedMultiplier, RawUpload, Bounds.MinUpload, Bounds.MaxUpload, ExtremeHint, OutUploadMultiplier);
 	}
-	if (bLogWarnings && IsOutsideRange(RawStack, MinStackMultiplier, MaxStackMultiplier))
+	if (bLogWarnings && IsOutsideRange(RawStack, Bounds.MinStack, Bounds.MaxStack))
 	{
-		UE_LOG(LogEasyDDConfig, Warning, TEXT("%s = %f is outside %.1f-%.1f; using %.1f"), EasyDD::KeyStackLimitMultiplier, RawStack, MinStackMultiplier, MaxStackMultiplier, OutStackMultiplier);
+		UE_LOG(LogEasyDDConfig, Warning, TEXT("%s = %f is outside %.1f-%.1f%s; using %.1f"), EasyDD::KeyStackLimitMultiplier, RawStack, Bounds.MinStack, Bounds.MaxStack, ExtremeHint, OutStackMultiplier);
 	}
 }
 
@@ -341,9 +368,56 @@ bool AEasyDDConfigSubsystem::ReadBatchingSetting() const
 	return true;
 }
 
-void AEasyDDConfigSubsystem::ApplyBatchingSetting() const
+bool AEasyDDConfigSubsystem::ReadExtremeSetting() const
+{
+	if (const UConfigPropertyBool* Extreme = FindBoolProperty(GetConfigRootSection(GetWorld()), EasyDD::KeyAllowExtremeMultipliers))
+	{
+		return Extreme->Value;
+	}
+	return false;
+}
+
+void AEasyDDConfigSubsystem::ApplySwitchSettings() const
 {
 	EasyDD::NetBatch::SetEnabled(ReadBatchingSetting());
+	// Called on every apply and when only a switch changed, so toggling the extreme switch takes effect at once.
+	EasyDD::UploadBoost::SetExtremeMode(ReadExtremeSetting());
+}
+
+int32 AEasyDDConfigSubsystem::GetLargestUploadableStackSize()
+{
+	// Scans the item classes loaded right now (a few ms; it runs only when settings or research change). Not cached:
+	// in the main menu many item classes aren't loaded yet, and a value taken there could be too small. Only solid items
+	// count: the depot holds no fluids or gases, whose "stack sizes" are much larger and would lower the cap for nothing.
+	static int32 LastLogged = 0;
+	int32 Largest = 1;
+	FString LargestName = TEXT("none");
+	for (TObjectIterator<UClass> It; It; ++It)
+	{
+		UClass* Class = *It;
+		if (!Class->IsChildOf(UFGItemDescriptor::StaticClass()) || Class->HasAnyClassFlags(CLASS_Abstract | CLASS_Deprecated | CLASS_NewerVersionExists))
+		{
+			continue;
+		}
+		const TSubclassOf<UFGItemDescriptor> Item(Class);
+		if (UFGItemDescriptor::GetForm(Item) != EResourceForm::RF_SOLID)
+		{
+			continue;
+		}
+		const int32 StackSize = UFGItemDescriptor::GetStackSize(Item);
+		if (StackSize > Largest)
+		{
+			Largest = StackSize;
+			LargestName = Class->GetName();
+		}
+	}
+	if (Largest != LastLogged)
+	{
+		LastLogged = Largest;
+		UE_LOG(LogEasyDDConfig, Log, TEXT("Largest stack size of a loaded solid item: %d (%s); with extreme multipliers, stack totals are limited to %d stacks per item so depot limits can't overflow"),
+			Largest, *LargestName, MaxSafeTotalStacks(Largest));
+	}
+	return Largest;
 }
 
 void AEasyDDConfigSubsystem::ApplyServer(const TCHAR* Reason)
@@ -352,23 +426,26 @@ void AEasyDDConfigSubsystem::ApplyServer(const TCHAR* Reason)
 	{
 		return;
 	}
-	ApplyBatchingSetting();
+	ApplySwitchSettings();
+	UpdateReplicatedConfig();
 	CaptureVanillaOnce();
 	if (!GVanilla.Values.IsValid())
 	{
 		return;
 	}
+	const bool bExtreme = ReadExtremeSetting();
 
 	float UploadMultiplier = DefaultMultiplier;
 	float StackMultiplier = DefaultMultiplier;
 	ReadConfig(UploadMultiplier, StackMultiplier);
 
 	UFGCentralStorageSettings* Settings = GetSettings();
+	const AFGUnlockSubsystem* Unlock = AFGUnlockSubsystem::Get(GetWorld());
 	Settings->mDefaultTimeToUpload = ComputeDefaultTimeToUpload(GVanilla.Values.TimeToUpload, UploadMultiplier);
 
 	// Research adds stacks on top of mDefaultItemStackLimit, so derive the bonus from the game's own getter.
 	int32 ResearchBonus = 0;
-	if (const AFGUnlockSubsystem* Unlock = AFGUnlockSubsystem::Get(GetWorld()))
+	if (Unlock)
 	{
 		ResearchBonus = Unlock->GetCentralStorageItemStackLimit() - Settings->mDefaultItemStackLimit;
 		if (ResearchBonus < 0)
@@ -377,7 +454,8 @@ void AEasyDDConfigSubsystem::ApplyServer(const TCHAR* Reason)
 			ResearchBonus = 0;
 		}
 	}
-	Settings->mDefaultItemStackLimit = ComputeDefaultItemStackLimit(GVanilla.Values.ItemStackLimit, ResearchBonus, StackMultiplier);
+	const int32 TotalStackCap = bExtreme ? MaxSafeTotalStacks(GetLargestUploadableStackSize()) : MaxTotalStacks;
+	Settings->mDefaultItemStackLimit = ComputeDefaultItemStackLimit(GVanilla.Values.ItemStackLimit, ResearchBonus, StackMultiplier, TotalStackCap);
 	bWroteSettings = true;
 
 	AppliedDefaultTimeToUpload = Settings->mDefaultTimeToUpload;
@@ -389,9 +467,10 @@ void AEasyDDConfigSubsystem::ApplyServer(const TCHAR* Reason)
 
 	RefreshGameObjects();
 
-	UE_LOG(LogEasyDDConfig, Log, TEXT("Applied (%s): upload x%.2f -> base %.4f s/item (%.2f items/min before research); stacks x%.2f -> base %d + research %d = %d"),
+	UE_LOG(LogEasyDDConfig, Log, TEXT("Applied (%s): upload x%.2f -> base %.4f s/item (%.2f items/min before research); stacks x%.2f -> base %d + research %d = %d (cap %d)%s"),
 		Reason, UploadMultiplier, Settings->mDefaultTimeToUpload, ItemsPerMinute(Settings->mDefaultTimeToUpload),
-		StackMultiplier, Settings->mDefaultItemStackLimit, ResearchBonus, Settings->mDefaultItemStackLimit + ResearchBonus);
+		StackMultiplier, Settings->mDefaultItemStackLimit, ResearchBonus, Settings->mDefaultItemStackLimit + ResearchBonus, TotalStackCap,
+		bExtreme ? TEXT("; extreme multipliers allowed") : TEXT(""));
 }
 
 void AEasyDDConfigSubsystem::RefreshGameObjects() const
@@ -482,8 +561,10 @@ void AEasyDDConfigSubsystem::OnDebounceElapsed()
 		ReadConfig(Upload, Stack, /*bLogWarnings=*/false);
 		if (Upload == AppliedUploadMultiplier && Stack == AppliedStackMultiplier)
 		{
-			// The depot settings are unchanged; the batching switch is cheap to apply and logs only when it flips.
-			ApplyBatchingSetting();
+			// The depot settings are unchanged; the switches are cheap to apply and log only when they flip. The raw
+			// values can still differ (e.g. 50 clamped to 20), so admins' menus get them too.
+			ApplySwitchSettings();
+			UpdateReplicatedConfig();
 			UE_LOG(LogEasyDDConfig, Verbose, TEXT("Config change event with unchanged multipliers (upload x%.1f, stacks x%.1f); nothing else to apply"), Upload, Stack);
 			return;
 		}
@@ -546,6 +627,200 @@ void AEasyDDConfigSubsystem::ApplyReplicatedValuesLocally()
 		AppliedUploadMultiplier, AppliedDefaultTimeToUpload, AppliedStackMultiplier, AppliedDefaultItemStackLimit);
 }
 
+bool AEasyDDConfigSubsystem::ReadAllowAdminMenuChanges(const UWorld* World)
+{
+	if (const UConfigPropertyBool* Allow = FindBoolProperty(GetConfigRootSection(World), EasyDD::KeyAllowAdminMenuChanges))
+	{
+		return Allow->Value;
+	}
+	return true;
+}
+
+void AEasyDDConfigSubsystem::UpdateReplicatedConfig()
+{
+	EasyDD::AdminSync::FValues Values;
+	if (!EasyDD::AdminSync::Read(GetConfigRootSection(GetWorld()), Values))
+	{
+		return;
+	}
+	ServerConfigUpload = Values.Upload;
+	ServerConfigStack = Values.Stack;
+	bServerConfigBatching = Values.bBatching;
+	bServerConfigExtreme = Values.bExtreme;
+	bServerAllowsAdminMenu = GetWorld() && GetWorld()->GetNetMode() == NM_DedicatedServer && ReadAllowAdminMenuChanges(GetWorld());
+	bServerConfigValid = true;
+	ForceNetUpdate();
+}
+
+namespace
+{
+	void ShowLocalChat(UWorld* World, const FString& Text)
+	{
+		UE_LOG(LogEasyDDConfig, Log, TEXT("%s"), *Text);
+		if (AFGChatManager* Chat = World ? AFGChatManager::Get(World) : nullptr)
+		{
+			FChatMessageStruct Line;
+			Line.MessageType = EFGChatMessageType::CMT_SystemMessage;
+			Line.MessageSender = FText::FromString(TEXT("Easy DD Config"));
+			Line.MessageText = FText::FromString(Text);
+			Chat->AddChatMessageToReceived(Line);
+		}
+	}
+}
+
+EasyDD::AdminSync::FValues AEasyDDConfigSubsystem::GetReplicatedServerValues() const
+{
+	EasyDD::AdminSync::FValues Values;
+	Values.Upload = ServerConfigUpload;
+	Values.Stack = ServerConfigStack;
+	Values.bBatching = bServerConfigBatching;
+	Values.bExtreme = bServerConfigExtreme;
+	return Values;
+}
+
+bool AEasyDDConfigSubsystem::IsLocalPlayerServerAdmin() const
+{
+	UWorld* World = GetWorld();
+	if (!World || World->GetNetMode() != NM_Client)
+	{
+		return false;
+	}
+	const AFGPlayerController* PlayerController = Cast<AFGPlayerController>(World->GetFirstPlayerController());
+	return PlayerController && PlayerController->GetDSPrivilegeLevel() == EPrivilegeLevel::Administrator;
+}
+
+void AEasyDDConfigSubsystem::OnRep_ServerConfig()
+{
+	if (bMirroring)
+	{
+		ApplyMirror(); // another admin or the server console changed something, or the server answered our change
+	}
+	else
+	{
+		OnAdminCheck();
+	}
+}
+
+void AEasyDDConfigSubsystem::OnAdminCheck()
+{
+	const bool bWant = bServerConfigValid && bServerAllowsAdminMenu && IsLocalPlayerServerAdmin();
+	if (bWant && !bMirroring)
+	{
+		StartMirroring();
+	}
+	else if (!bWant && bMirroring)
+	{
+		StopMirroring(TEXT("no longer a server admin here, or the server turned admin menu changes off"));
+	}
+}
+
+void AEasyDDConfigSubsystem::StartMirroring()
+{
+	UConfigPropertySection* Root = GetConfigRootSection(GetWorld());
+	if (!Root)
+	{
+		return;
+	}
+	// Keep an existing backup: it holds the player's own values from before (the restore at game start removes stale ones).
+	if (!EasyDD::AdminSync::HasBackup())
+	{
+		EasyDD::AdminSync::FValues Own;
+		if (!EasyDD::AdminSync::Read(Root, Own) || !EasyDD::AdminSync::SaveBackup(Own))
+		{
+			return;
+		}
+	}
+	bMirroring = true;
+	Root->OnPropertyValueChanged.AddUniqueDynamic(this, &AEasyDDConfigSubsystem::OnClientMenuChanged);
+	ClientBoundSection = Root;
+	ApplyMirror();
+	ShowLocalChat(GetWorld(), TEXT("You are a server admin: the Easy DD Config Mods menu now shows this server's settings, and changes you make there go to the server. Your own settings come back when you leave."));
+}
+
+void AEasyDDConfigSubsystem::StopMirroring(const TCHAR* Why)
+{
+	bMirroring = false;
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(ClientMenuDebounceTimer);
+	}
+	UConfigPropertySection* Root = ClientBoundSection.Get();
+	if (Root)
+	{
+		Root->OnPropertyValueChanged.RemoveDynamic(this, &AEasyDDConfigSubsystem::OnClientMenuChanged);
+	}
+	ClientBoundSection.Reset();
+	const UGameInstance* GameInstance = GetWorld() ? GetWorld()->GetGameInstance() : nullptr;
+	UConfigManager* ConfigManager = GameInstance ? GameInstance->GetSubsystem<UConfigManager>() : nullptr;
+	if (!Root)
+	{
+		Root = GetConfigRootSection(GetWorld());
+	}
+	EasyDD::AdminSync::RestoreBackup(ConfigManager, Root, Why);
+}
+
+void AEasyDDConfigSubsystem::ApplyMirror()
+{
+	UConfigPropertySection* Root = ClientBoundSection.Get();
+	if (!Root)
+	{
+		return;
+	}
+	MirroredServerValues = GetReplicatedServerValues();
+	TGuardValue<bool> Guard(bApplyingMirror, true);
+	if (EasyDD::AdminSync::Write(Root, MirroredServerValues))
+	{
+		Root->MarkDirty(); // saves this machine's cfg (the backup holds the player's own values) and updates open tooltips
+	}
+}
+
+void AEasyDDConfigSubsystem::OnAdminRequestRefused()
+{
+	if (bMirroring)
+	{
+		ApplyMirror();
+	}
+}
+
+void AEasyDDConfigSubsystem::OnClientMenuChanged()
+{
+	if (bApplyingMirror || !bMirroring)
+	{
+		return;
+	}
+	// Sliders and spinboxes fire once per step; send once the player stops.
+	GetWorldTimerManager().SetTimer(ClientMenuDebounceTimer, this, &AEasyDDConfigSubsystem::SendMenuChanges, 0.5f, false);
+}
+
+void AEasyDDConfigSubsystem::SendMenuChanges()
+{
+	UConfigPropertySection* Root = ClientBoundSection.Get();
+	EasyDD::AdminSync::FValues Now;
+	if (!bMirroring || !Root || !EasyDD::AdminSync::Read(Root, Now))
+	{
+		return;
+	}
+	const TArray<TPair<FString, FString>> Changes = EasyDD::AdminSync::Diff(MirroredServerValues, Now);
+	if (Changes.Num() == 0)
+	{
+		return;
+	}
+	AFGPlayerController* PlayerController = GetWorld() ? Cast<AFGPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr;
+	UEasyDDConfigRCO* RCO = PlayerController ? PlayerController->GetRemoteCallObjectOfClass<UEasyDDConfigRCO>() : nullptr;
+	if (!RCO)
+	{
+		UE_LOG(LogEasyDDConfig, Warning, TEXT("Can't send menu changes to the server: no Easy DD Config channel on this player (does the server run the same version?)"));
+		ApplyMirror();
+		return;
+	}
+	// Only what changed is sent, so the admin's other values can't overwrite the server's.
+	for (const TPair<FString, FString>& Change : Changes)
+	{
+		UE_LOG(LogEasyDDConfig, Log, TEXT("Sending to the server: %s = %s"), *Change.Key, *Change.Value);
+		RCO->Server_SetConfigValue(Change.Key, Change.Value);
+	}
+}
+
 bool AEasyDDConfigSubsystem::SetConfigValue(const UWorld* World, const FString& Key, const FString& ValueText, FString& OutMessage)
 {
 	if (World && World->GetNetMode() == NM_Client)
@@ -560,7 +835,7 @@ bool AEasyDDConfigSubsystem::SetConfigValue(const UWorld* World, const FString& 
 		bool bNewValue = false;
 		if (!ParseSwitch(ValueText, bNewValue))
 		{
-			OutMessage = FString::Printf(TEXT("Refused: %s takes true or false."), EasyDD::KeyBatchDepotNetworkUpdates);
+			OutMessage = FString::Printf(TEXT("Refused: %s takes true or false."), *Key);
 			return false;
 		}
 		FString CanonicalKey;
@@ -578,8 +853,9 @@ bool AEasyDDConfigSubsystem::SetConfigValue(const UWorld* World, const FString& 
 
 	if (!IsFloatKey(Key))
 	{
-		OutMessage = FString::Printf(TEXT("Unknown key '%s'. Valid keys: %s, %s, %s"), *Key,
-			EasyDD::KeyUploadSpeedMultiplier, EasyDD::KeyStackLimitMultiplier, EasyDD::KeyBatchDepotNetworkUpdates);
+		OutMessage = FString::Printf(TEXT("Unknown key '%s'. Valid keys: %s, %s, %s, %s, %s"), *Key,
+			EasyDD::KeyUploadSpeedMultiplier, EasyDD::KeyStackLimitMultiplier, EasyDD::KeyBatchDepotNetworkUpdates, EasyDD::KeyAllowExtremeMultipliers,
+			EasyDD::KeyAllowAdminMenuChanges);
 		return false;
 	}
 	const float NewValue = FCString::Atof(*ValueText);
@@ -600,16 +876,20 @@ bool AEasyDDConfigSubsystem::SetConfigValue(const UWorld* World, const FString& 
 	Property->MarkDirty();
 
 	const bool bUpload = CanonicalKey.Equals(EasyDD::KeyUploadSpeedMultiplier);
+	const UConfigPropertyBool* ExtremeSwitch = FindBoolProperty(Root, EasyDD::KeyAllowExtremeMultipliers);
+	const bool bExtreme = ExtremeSwitch && ExtremeSwitch->Value;
+	const FMultiplierBounds Bounds = FMultiplierBounds::For(bExtreme);
 	const float Sanitized = bUpload
-		? SanitizeMultiplier(NewValue, MinUploadMultiplier, MaxUploadMultiplier)
-		: SanitizeMultiplier(NewValue, MinStackMultiplier, MaxStackMultiplier);
+		? SanitizeMultiplier(NewValue, Bounds.MinUpload, Bounds.MaxUpload)
+		: SanitizeMultiplier(NewValue, Bounds.MinStack, Bounds.MaxStack);
 	const bool bClamped = bUpload
-		? IsOutsideRange(NewValue, MinUploadMultiplier, MaxUploadMultiplier)
-		: IsOutsideRange(NewValue, MinStackMultiplier, MaxStackMultiplier);
+		? IsOutsideRange(NewValue, Bounds.MinUpload, Bounds.MaxUpload)
+		: IsOutsideRange(NewValue, Bounds.MinStack, Bounds.MaxStack);
 	FString Note;
 	if (bClamped)
 	{
-		Note = FString::Printf(TEXT(" (will be clamped to %g)"), Sanitized);
+		Note = FString::Printf(TEXT(" (will be clamped to %g%s)"), Sanitized,
+			bExtreme ? TEXT("") : TEXT("; set AllowExtremeMultipliers true to go higher"));
 	}
 	else if (Sanitized != NewValue)
 	{
@@ -660,12 +940,13 @@ bool AEasyDDConfigSubsystem::ReloadConfigFromDisk(const UWorld* World, FString& 
 			++Updated;
 		}
 	}
-	bool bSwitch = true;
-	if (UConfigPropertyBool* Batching = FindBoolProperty(Root, EasyDD::KeyBatchDepotNetworkUpdates))
+	for (const TCHAR* Key : {EasyDD::KeyBatchDepotNetworkUpdates, EasyDD::KeyAllowExtremeMultipliers, EasyDD::KeyAllowAdminMenuChanges})
 	{
-		if (Json->TryGetBoolField(EasyDD::KeyBatchDepotNetworkUpdates, bSwitch))
+		bool bSwitch = false;
+		UConfigPropertyBool* Property = FindBoolProperty(Root, Key);
+		if (Property && Json->TryGetBoolField(Key, bSwitch))
 		{
-			Batching->Value = bSwitch;
+			Property->Value = bSwitch;
 			++Updated;
 		}
 	}
@@ -703,12 +984,20 @@ void AEasyDDConfigSubsystem::DescribeStatus(FOutputDevice& Ar) const
 		float Upload = DefaultMultiplier;
 		float Stack = DefaultMultiplier;
 		ReadConfig(Upload, Stack);
-		Lines.Add(FString::Printf(TEXT("  Config on this machine: %s=%.2f, %s=%.2f, %s=%s"), EasyDD::KeyUploadSpeedMultiplier, Upload, EasyDD::KeyStackLimitMultiplier, Stack,
-			EasyDD::KeyBatchDepotNetworkUpdates, ReadBatchingSetting() ? TEXT("true") : TEXT("false")));
+		Lines.Add(FString::Printf(TEXT("  Config on this machine: %s=%.2f, %s=%.2f, %s=%s, %s=%s"), EasyDD::KeyUploadSpeedMultiplier, Upload, EasyDD::KeyStackLimitMultiplier, Stack,
+			EasyDD::KeyBatchDepotNetworkUpdates, ReadBatchingSetting() ? TEXT("true") : TEXT("false"),
+			EasyDD::KeyAllowExtremeMultipliers, ReadExtremeSetting() ? TEXT("true") : TEXT("false")));
+		if (World && World->GetNetMode() == NM_DedicatedServer)
+		{
+			Lines.Add(FString::Printf(TEXT("  Admin menu changes (%s): %s"), EasyDD::KeyAllowAdminMenuChanges,
+				ReadAllowAdminMenuChanges(World) ? TEXT("allowed; server admins can change these settings from their own Mods menu") : TEXT("off")));
+		}
 	}
 	else
 	{
-		Lines.Add(TEXT("  Config on this machine: ignored (client); the host's values apply"));
+		Lines.Add(bMirroring
+			? TEXT("  Config on this machine: showing the server's values (you are a server admin; your own come back when you leave)")
+			: TEXT("  Config on this machine: ignored (client); the host's values apply"));
 	}
 	Lines.Add(FString::Printf(TEXT("  In effect: upload x%.2f, stacks x%.2f, research stack bonus %d"), AppliedUploadMultiplier, AppliedStackMultiplier, AppliedResearchStackBonus));
 	Lines.Add(FString::Printf(TEXT("  Settings now: mDefaultTimeToUpload=%.4f, mMaxTimeToUploadPercentageDecrease=%.2f, mDefaultItemStackLimit=%d"),
@@ -716,15 +1005,16 @@ void AEasyDDConfigSubsystem::DescribeStatus(FOutputDevice& Ar) const
 
 	if (const AFGUnlockSubsystem* Unlock = AFGUnlockSubsystem::Get(World))
 	{
+		// Printed in double with 4 decimals so a rate a hair below the exact one (the "4,799.999" display) shows up here.
 		const float Time = Unlock->GetCentralStorageTimeToUpload();
-		Lines.Add(FString::Printf(TEXT("  Game (unlock subsystem): %.4f s/item (%.2f items/min), %d stack(s)"),
-			Time, ItemsPerMinute(Time), Unlock->GetCentralStorageItemStackLimit()));
+		Lines.Add(FString::Printf(TEXT("  Game (unlock subsystem): %.9f s/item (%.4f items/min), %d stack(s)"),
+			Time, Time > 0.0f ? 60.0 / static_cast<double>(Time) : 0.0, Unlock->GetCentralStorageItemStackLimit()));
 	}
 	if (const AFGCentralStorageSubsystem* CentralStorage = AFGCentralStorageSubsystem::Get(World))
 	{
 		const float Time = CentralStorage->GetCentralStorageTimeToUpload();
-		Lines.Add(FString::Printf(TEXT("  Game (central storage): %.4f s/item (%.2f items/min), %d stack(s) per item"),
-			Time, ItemsPerMinute(Time), CentralStorage->GetCentralStorageItemStackLimit()));
+		Lines.Add(FString::Printf(TEXT("  Game (central storage): %.9f s/item (%.4f items/min), %d stack(s) per item"),
+			Time, Time > 0.0f ? 60.0 / static_cast<double>(Time) : 0.0, CentralStorage->GetCentralStorageItemStackLimit()));
 	}
 	int32 Containers = 0;
 	if (World)
@@ -735,6 +1025,7 @@ void AEasyDDConfigSubsystem::DescribeStatus(FOutputDevice& Ar) const
 		}
 	}
 	Lines.Add(FString::Printf(TEXT("  Uploaders in world: %d"), Containers));
+	EasyDD::UploadBoost::DescribeStatus(Lines);
 	EasyDD::NetBatch::DescribeStatus(World, Lines);
 
 	for (const FString& Line : Lines)

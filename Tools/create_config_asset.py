@@ -13,30 +13,54 @@ ASSET_NAME = "EasyDDConfiguration"
 ASSET_PATH = f"{ASSET_DIR}/{ASSET_NAME}"
 SML_PROPS = "/SML/Interface/UI/Menu/Mods/ConfigProperties"
 
-HOST_NOTE = "In multiplayer the host's or server's value is used."
+HOST_NOTE = (
+    "In multiplayer the host's or server's value is used. On a dedicated server, server admins see and change\n"
+    "the server's values here while connected."
+)
 
+# The spinboxes allow the extreme maximums; the mod itself clamps to the normal maximums (20 and 100) unless
+# "Allow extreme multipliers" is on. Keep these in sync with EasyDDConfigMath.h.
 PROPERTIES = [
     {
         "key": "UploadSpeedMultiplier",
         "display_name": "Upload speed multiplier",
         "tooltip": (
             "Multiplies how fast Dimensional Depot Uploaders, and your own upload slots, send items, at every research level.\n"
-            "1.0 = vanilla (15 items/min at base, 240 with all research). 2.0 doubles it.\n" + HOST_NOTE
+            "1.0 = vanilla (15 items/min at base, 240 with all research). 2.0 doubles it.\n"
+            "Up to 20. Higher values are used only with \"Allow extreme multipliers\" on (up to 10,000).\n" + HOST_NOTE
         ),
         "default": 1.0,
         "min": 0.1,
-        "max": 20.0,
+        "max": 10000.0,
     },
     {
         "key": "StackLimitMultiplier",
         "display_name": "Stack limit multiplier",
         "tooltip": (
             "Multiplies how many stacks of each item the Dimensional Depot can hold, including research upgrades.\n"
-            "1.0 = vanilla (1 stack at base, 5 with all research). 3.0 triples it. It can't go below vanilla.\n" + HOST_NOTE
+            "1.0 = vanilla (1 stack at base, 5 with all research). 3.0 triples it. It can't go below vanilla.\n"
+            "Up to 100 (500 stacks per item). Higher values are used only with \"Allow extreme multipliers\" on.\n" + HOST_NOTE
         ),
         "default": 1.0,
         "min": 1.0,
-        "max": 100.0,
+        "max": 100000.0,
+    },
+    {
+        "key": "AllowExtremeMultipliers",
+        "type": "bool",
+        "display_name": "Allow extreme multipliers (RISKY)",
+        "tooltip": (
+            "Raises the limits of the two multipliers above from x20 (upload speed) and x100 (stacks) to x10,000 and x100,000.\n"
+            "The game's technical limits still apply on top: the depot can't hold more of one item than the game can count\n"
+            "(the stack multiplier's tooltip shows that limit while this is on). Uploads are limited only by what is in each\n"
+            "uploader and the room left in the depot, and by how much your PC or server can process: if the game can't keep\n"
+            "up, it slows down or stutters, and real upload rates can end up below the configured ones.\n"
+            "RISKS: very high values are untested territory. Huge upload rates cost CPU (and network traffic in multiplayer)\n"
+            "and can cause lag, and huge depot amounts may confuse other mods. BACK UP YOUR SAVES before using it.\n"
+            "Turning it off again clamps the multipliers back to the normal limits; nothing in the depot is deleted.\n"
+            "Close and reopen the Mods menu after changing this, so the tooltips and limits shown are up to date.\n" + HOST_NOTE
+        ),
+        "default": False,
     },
     {
         "key": "BatchDepotNetworkUpdates",
@@ -47,6 +71,18 @@ PROPERTIES = [
             "them about once a second, so busy depots don't disconnect players with \"Outgoing reliable buffer overflow\".\n"
             "Depot counts on screen then update about once a second instead of instantly. Leave it on unless you see a problem.\n"
             + HOST_NOTE
+        ),
+        "default": True,
+    },
+    {
+        # Hidden in the Mods menu: only a dedicated server's own value matters, set in its cfg or with EasyDD.Set.
+        "key": "AllowAdminMenuChanges",
+        "type": "bool",
+        "hidden": True,
+        "display_name": "Allow admin menu changes (dedicated servers)",
+        "tooltip": (
+            "Dedicated servers only. Lets server admins change the server's Easy DD Config settings from their own Mods menu\n"
+            "while connected. Set it to false in the server's EasyDDConfig.cfg to allow changes only through the cfg and console."
         ),
         "default": True,
     },
@@ -131,6 +167,7 @@ def main():
             prop.set_editor_property("min_value", spec["min"])
             prop.set_editor_property("max_value", spec["max"])
         prop.set_editor_property("requires_world_reload", False)
+        prop.set_editor_property("hidden", spec.get("hidden", False))
         section_properties[spec["key"]] = prop
     root.set_editor_property("section_properties", section_properties)
     # SML defaults sections to a horizontal list (with a scroll bar); the Mods menu reads top to bottom, so stack them.

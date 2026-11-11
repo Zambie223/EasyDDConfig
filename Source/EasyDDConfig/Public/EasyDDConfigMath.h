@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 
+
 /**
  * Pure helpers for turning the user's multipliers into the values written to UFGCentralStorageSettings.
  * No game state is touched here.
@@ -23,6 +24,45 @@ namespace EasyDD::Math
 
 	/** Hard cap on total stacks per item type. Keeps stacks * stack size far from int32 overflow, even with stack-size mods. */
 	constexpr int32 MaxTotalStacks = 500;
+
+	/**
+	 * With "Allow extreme multipliers" on, the menu limits above are replaced by these, which only keep the numbers
+	 * meaningful. The real limits then come from the game: the per-tick upload top-up cap (see EasyDDUploadBooster) and
+	 * the overflow-safe stack total (MaxSafeTotalStacks).
+	 */
+	constexpr float MaxUploadMultiplierExtreme = 10000.0f;
+	constexpr float MaxStackMultiplierExtreme = 100000.0f;
+
+	/** Bounds for the multipliers, depending on the "Allow extreme multipliers" switch. */
+	struct FMultiplierBounds
+	{
+		float MinUpload = MinUploadMultiplier;
+		float MaxUpload = MaxUploadMultiplier;
+		float MinStack = MinStackMultiplier;
+		float MaxStack = MaxStackMultiplier;
+
+		static FMultiplierBounds For(const bool bExtreme)
+		{
+			FMultiplierBounds Bounds;
+			if (bExtreme)
+			{
+				Bounds.MaxUpload = MaxUploadMultiplierExtreme;
+				Bounds.MaxStack = MaxStackMultiplierExtreme;
+			}
+			return Bounds;
+		}
+	};
+
+	/**
+	 * Largest total stack count per item type for which the game's per-item limit (stacks * stack size, an int32) can't
+	 * overflow, for the largest stack size of any uploadable item. No safety margin: this applies only with "Allow
+	 * extreme multipliers" on, whose users accept the risk, so the full int32 range is allowed.
+	 */
+	inline int32 MaxSafeTotalStacks(const int32 LargestStackSize)
+	{
+		const int64 StackSize = FMath::Max<int64>(LargestStackSize, 1);
+		return static_cast<int32>(FMath::Clamp<int64>(static_cast<int64>(MAX_int32) / StackSize, 1, MAX_int32));
+	}
 
 	/** The game's own values, captured before this mod writes anything. */
 	struct FVanillaValues
@@ -65,7 +105,14 @@ namespace EasyDD::Math
 		return FMath::Clamp(RoundToTenth(Value), Min, Max);
 	}
 
-	/** Base upload time for a given multiplier. Research then removes its percentage as usual. */
+	/**
+	 * Base upload time for a given multiplier. Research then removes its percentage as usual.
+	 *
+	 * Known cosmetic limit: the game computes the effective time as base - base * (research% / 100) in float (identified
+	 * in 0.3.0 testing: x20 with all research gives 0.012500003 s), so near 0.0125 its results come in steps of about
+	 * 1.5e-8 s and none displays as exactly 4,800 per min; the game shows "4,799.999". No base value avoids that, so the
+	 * plain quotient is used.
+	 */
 	inline float ComputeDefaultTimeToUpload(const float VanillaTimeToUpload, const float SanitizedUploadMultiplier)
 	{
 		return VanillaTimeToUpload / SanitizedUploadMultiplier;
@@ -73,19 +120,19 @@ namespace EasyDD::Math
 
 	/**
 	 * Base stack limit that makes (base + research bonus) equal round(multiplier * (vanilla base + research bonus)).
-	 * The total never drops below vanilla and never exceeds MaxTotalStacks (unless vanilla already does).
+	 * The total never drops below vanilla and never exceeds TotalCap (unless vanilla already does).
 	 * Returned value is always >= VanillaBase, so it is always >= 1.
 	 */
-	inline int32 ComputeDefaultItemStackLimit(const int32 VanillaBase, const int32 ResearchBonus, const float SanitizedStackMultiplier)
+	inline int32 ComputeDefaultItemStackLimit(const int32 VanillaBase, const int32 ResearchBonus, const float SanitizedStackMultiplier, const int32 TotalCap = MaxTotalStacks)
 	{
 		const int32 Bonus = FMath::Max(ResearchBonus, 0);
 		const int32 VanillaTotal = VanillaBase + Bonus;
-		if (VanillaTotal >= MaxTotalStacks)
+		if (VanillaTotal >= TotalCap)
 		{
 			return VanillaBase;
 		}
-		const double Scaled = FMath::Min(static_cast<double>(SanitizedStackMultiplier) * VanillaTotal, static_cast<double>(MaxTotalStacks));
-		const int32 Total = FMath::Clamp(static_cast<int32>(FMath::RoundToDouble(Scaled)), VanillaTotal, MaxTotalStacks);
+		const double Scaled = FMath::Min(static_cast<double>(SanitizedStackMultiplier) * VanillaTotal, static_cast<double>(TotalCap));
+		const int32 Total = FMath::Clamp(static_cast<int32>(FMath::RoundToDouble(Scaled)), VanillaTotal, TotalCap);
 		return Total - Bonus;
 	}
 
