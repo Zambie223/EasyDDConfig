@@ -2,6 +2,16 @@
 
 Changes made after the first public release are listed here.
 
+## 0.3.1 (2026-11-19)
+
+### Fixed
+- Upload top-ups work again on game version 1.2.5.1. The patch moved where the game keeps an uploader's inventory, so the mod no longer recognised uploaders and top-ups silently stopped (no crash; uploads fell back to one item per uploader per frame). The mod now looks the inventory up through the game's reflection data, which follows such moves.
+
+### Known issue
+- **Multiplayer on game 1.2.5.1:** the patch also changed the game's network connection data, which **Batch depot network updates** reads. On 1.2.5.1 this can crash a host or dedicated server once a player is connected. Until a multiplayer update, hosts and servers on 1.2.5.1 should turn **Batch depot network updates** off (Mod Options, or `EasyDD.Set BatchDepotNetworkUpdates false` on a server). Single player is not affected.
+
+The host or server and every player need the same version.
+
 ## 0.3.0 (2026-11-11)
 
 ### Added

@@ -55,6 +55,10 @@ namespace
 		ECVF_Default);
 
 	FFloatProperty* GTimeToUploadProp = nullptr; // AFGCentralStorageContainer::mTimeToUpload: seconds per item, research applied
+	// AFGBuildableStorage::mStorageInventory, read through reflection instead of the inline GetStorageInventory(). The
+	// inline getter compiles the member's offset into this mod, and game patches move it (1.2.5.1 added an interface to
+	// AFGBuildableFactory, shifting it by 16 bytes, so the old offset never matched and top-ups silently stopped).
+	FObjectProperty* GStorageInventoryProp = nullptr;
 
 	/** True while the mod's own extra uploads run on this thread, so the hook doesn't count them as the game's. */
 	thread_local bool TInTopUp = false;
@@ -187,7 +191,7 @@ namespace
 			return; // our own extra upload: let the game run it normally
 		}
 		AFGCentralStorageContainer* Uploader = Inventory ? Cast<AFGCentralStorageContainer>(Inventory->GetOwner()) : nullptr;
-		if (!Subsystem || !Uploader || Inventory != Uploader->GetStorageInventory() || !Uploader->HasAuthority()
+		if (!Subsystem || !Uploader || Inventory != GStorageInventoryProp->GetObjectPropertyValue_InContainer(Uploader) || !Uploader->HasAuthority()
 			|| CVarUploadTopUp.GetValueOnAnyThread() == 0)
 		{
 			return; // not an uploader's storage (e.g. a player's own upload slots), a client, or top-ups off
@@ -265,10 +269,12 @@ namespace EasyDD::UploadBoost
 			return;
 		}
 		GTimeToUploadProp = FindFProperty<FFloatProperty>(AFGCentralStorageContainer::StaticClass(), TEXT("mTimeToUpload"));
-		if (!GTimeToUploadProp)
+		GStorageInventoryProp = FindFProperty<FObjectProperty>(AFGCentralStorageContainer::StaticClass(), TEXT("mStorageInventory"));
+		if (!GTimeToUploadProp || !GStorageInventoryProp)
 		{
 			GBoostHookState = EBoostHookState::Failed;
-			UE_LOG(LogEasyDDConfig, Warning, TEXT("Upload top-up unavailable: the uploader's upload time was not found (the game may have changed). Uploads stay at the game's limit of one item per frame."));
+			UE_LOG(LogEasyDDConfig, Warning, TEXT("Upload top-up unavailable: the uploader's %s was not found (the game may have changed). Uploads stay at the game's limit of one item per frame."),
+				GTimeToUploadProp ? TEXT("storage inventory") : TEXT("upload time"));
 			return;
 		}
 		FUploadHook::InstallHook(UploadFnName);
@@ -302,7 +308,7 @@ namespace EasyDD::UploadBoost
 		{
 		case EBoostHookState::NotStarted: OutLines.Add(TEXT("  Upload top-up: not started")); return;
 		case EBoostHookState::Editor: OutLines.Add(TEXT("  Upload top-up: not used in the editor")); return;
-		case EBoostHookState::Failed: OutLines.Add(TEXT("  Upload top-up: unavailable (uploader upload time not found)")); return;
+		case EBoostHookState::Failed: OutLines.Add(TEXT("  Upload top-up: unavailable (uploader upload time or storage inventory not found)")); return;
 		case EBoostHookState::Installed: break;
 		}
 		const FString PerTick = GExtremeMode ? FString(TEXT("no per-frame cap (extreme multipliers)")) : FString::Printf(TEXT("at most %d extra per uploader at once"), MaxExtraUploadsPerTick);

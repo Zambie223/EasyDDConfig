@@ -42,6 +42,8 @@ Turning the setting off clamps the multipliers back to the normal limits; nothin
 
 ## Multiplayer
 
+> **Known issue on game version 1.2.5.1:** the patch changed the game's network connection data, which **Batch depot network updates** reads, so a host or dedicated server on 1.2.5.1 can crash once a player is connected. Until a multiplayer update, turn **Batch depot network updates** off on 1.2.5.1 hosts and servers (Mod Options, or `EasyDD.Set BatchDepotNetworkUpdates false` on a server). Single player is not affected.
+
 - **Install the mod on the server or host and on every player's game.** Players without it can't join.
 - **The host's settings are used, or the server's on a dedicated server.** Changing Mod Options as a joined player does nothing while you are connected. Your own settings come back when you play your own world.
 - **Dedicated server admins can change the server's settings from their own Mods menu.** While you are connected as a server admin, your Easy DD Config menu shows the server's values, and any setting you change there is sent to the server. The server checks that you really are an admin, applies the change at once, saves it in its config file, and confirms it in chat. Only the setting you changed is sent. Your own settings come back when you leave the server (or the next time the game starts, if it closed while you were connected). A server owner can turn this off with `"AllowAdminMenuChanges": false` in the server's config file.
@@ -61,7 +63,7 @@ Dedicated servers have no menu of their own. Use any of these:
       "AllowExtremeMultipliers": false,
       "BatchDepotNetworkUpdates": true,
       "AllowAdminMenuChanges": true,
-      "SML_ModVersion_DoNotChange": "0.3.0"
+      "SML_ModVersion_DoNotChange": "0.3.1"
   }
   ```
   Then restart the server, or run `EasyDD.Reload` (below). `AllowAdminMenuChanges` exists only in the config file; it isn't shown in the Mods menu.
@@ -105,6 +107,8 @@ Version 0.3.0 was tested in single player and on Windows and Linux dedicated ser
 - **Extreme multipliers:** at ×10,000 upload and ×100,000 stacks, the server stayed responsive (slowest API reply 0.12 s); the stack total was capped at the technical limit; turning the setting off clamped both multipliers back. The checkbox and tooltips were checked in the Mods menu.
 - **Displayed upload rate:** an uploader showed 4,800 per minute at ×20 with all research.
 - Both hooks also load on a Linux dedicated server.
+
+Version 0.3.1 was tested on game version 1.2.5.1 in single player and on a Windows dedicated server with no player connected, using the 660-uploader factory at ×20: upload top-ups worked again (0.3.0 recognised no uploaders on 1.2.5.1). Multiplayer has not been tested on 1.2.5.1; see the known issue under Multiplayer.
 
 It has not been tested in an internet game across several PCs; all multiplayer tests ran on one PC. The network-load figures above may be worse over real connections.
 
