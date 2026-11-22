@@ -2,6 +2,21 @@
 
 Changes made after the first public release are listed here.
 
+## 0.3.2 (2026-11-21)
+
+Needs game version 1.2.5.1 (build 520140) or newer and SML 3.12.1 or newer. On older game versions, keep 0.3.1.
+
+### Fixed
+- **Multiplayer on game 1.2.5.1:** a host or dedicated server no longer crashes once a player is connected while **Batch depot network updates** is on. The mod is now built for 1.2.5.1, so it reads the game's network connection data correctly again. This fixes the 0.3.1 known issue: if you turned batching off because of it, turn it back on. A test over a simulated slow connection showed it is still needed on 1.2.5.1: with it off, a player joining a busy factory was disconnected while loading in.
+
+### Added
+- A startup check for game updates. If an update changes data this mod reads directly, the affected part (the depot settings, network batching, admin menu sync or chat messages) stays off and the game log says which, instead of the game crashing.
+
+### Changed
+- The mod's startup log line no longer shows how many uploaders the depot has registered. That number was always 0 at that point; the count of uploaders in the world is still shown.
+
+The host or server and every player need the same version.
+
 ## 0.3.1 (2026-11-19)
 
 ### Fixed

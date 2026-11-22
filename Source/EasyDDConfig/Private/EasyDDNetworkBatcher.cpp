@@ -2,6 +2,7 @@
 
 #include "Containers/Ticker.h"
 #include "EasyDDConfigLog.h"
+#include "EasyDDLayoutGuard.h"
 #include "Engine/ActorChannel.h"
 #include "Engine/NetConnection.h"
 #include "Engine/NetDriver.h"
@@ -45,8 +46,25 @@ namespace
 		NotStarted,
 		Editor,
 		DeferredToDepotNetworkFix,
+		LayoutChanged,
 		Installed,
 	};
+
+	/**
+	 * The batcher reads engine networking internals inline: UNetConnection::ActorChannels (through FindActorChannelRef),
+	 * UChannel::NumOutRec and UNetDriver::ClientConnections. ActorChannels and NumOutRec aren't reflected, so the check
+	 * uses each class's size plus reflected fields on either side of them. On 1.2.5.1 with a 1.2.5.0 build, Driver and
+	 * DefaultMaxChannelSize moved and UNetConnection grew 32 bytes, so this would have turned batching off.
+	 */
+	bool NetworkLayoutMatches()
+	{
+		const TCHAR* Feature = TEXT("Network batching");
+		return EasyDD::Layout::Matches(UNetConnection::StaticClass(), sizeof(UNetConnection),
+				{ EASYDD_FIELD(UNetConnection, Driver), EASYDD_FIELD(UNetConnection, OpenChannels), EASYDD_FIELD(UNetConnection, DefaultMaxChannelSize) }, Feature)
+			&& EasyDD::Layout::Matches(UChannel::StaticClass(), sizeof(UChannel), { EASYDD_FIELD(UChannel, Connection) }, Feature)
+			&& EasyDD::Layout::Matches(UActorChannel::StaticClass(), sizeof(UActorChannel), {}, Feature)
+			&& EasyDD::Layout::Matches(UNetDriver::StaticClass(), sizeof(UNetDriver), { EASYDD_FIELD(UNetDriver, ClientConnections) }, Feature);
+	}
 
 	struct FCounters
 	{
@@ -108,8 +126,8 @@ namespace
 
 	bool HasConnectedPlayers(const AFGCentralStorageSubsystem* Self)
 	{
-		const UWorld* World = Self->GetWorld();
-		const UNetDriver* Driver = World ? World->GetNetDriver() : nullptr;
+		// AActor::GetNetDriver is exported (not inline), so it follows the running engine's UWorld layout.
+		const UNetDriver* Driver = Self->GetNetDriver();
 		return Driver && Driver->ClientConnections.Num() > 0;
 	}
 
@@ -162,8 +180,7 @@ namespace
 	/** Highest number of unacknowledged reliable messages on the depot's channel over all players. */
 	int32 HighestPlayerQueue(AFGCentralStorageSubsystem* Subsystem)
 	{
-		const UWorld* World = Subsystem->GetWorld();
-		const UNetDriver* Driver = World ? World->GetNetDriver() : nullptr;
+		const UNetDriver* Driver = Subsystem->GetNetDriver();
 		if (!Driver)
 		{
 			return 0;
@@ -310,6 +327,11 @@ namespace EasyDD::NetBatch
 			UE_LOG(LogEasyDDConfig, Log, TEXT("Network batching: Depot Network Fix is installed and does the same job, so Easy DD Config leaves depot messages to it"));
 			return;
 		}
+		if (!NetworkLayoutMatches())
+		{
+			GHookState = EHookState::LayoutChanged; // the warning names the difference; depot messages stay as the game sends them
+			return;
+		}
 		FAmountRpcHook::InstallHook(AmountRpcName);
 		GHookHandle = FAmountRpcHook::AddHandlerBefore(&OnAmountRpc);
 		GTickerHandle = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateStatic(&Tick), TickerIntervalSeconds);
@@ -363,6 +385,9 @@ namespace EasyDD::NetBatch
 			return;
 		case EHookState::DeferredToDepotNetworkFix:
 			OutLines.Add(TEXT("  Network batching: left to Depot Network Fix, which is installed"));
+			return;
+		case EHookState::LayoutChanged:
+			OutLines.Add(TEXT("  Network batching: off, this game version's network data differs from the one Easy DD Config was built for (see the log; look for an update)"));
 			return;
 		case EHookState::Installed:
 			break;

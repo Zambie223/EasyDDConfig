@@ -1,9 +1,9 @@
 {
 	"FileVersion": 3,
 	"Version": 0,
-	"VersionName": "0.3.1",
-	"SemVersion": "0.3.1",
-	"GameVersion": ">=517554",
+	"VersionName": "0.3.2",
+	"SemVersion": "0.3.2",
+	"GameVersion": ">=520140",
 	"FriendlyName": "Easy DD Config",
 	"Description": "Set the Dimensional Depot's upload speed and stack limit from the Mod Options menu. Research upgrades still apply on top. In multiplayer, the host or server also batches the depot's network messages so busy depots don't disconnect players, and dedicated server admins can change the server's settings from their own Mods menu.",
 	"Category": "Modding",
@@ -27,7 +27,7 @@
 		{
 			"Name": "SML",
 			"Enabled": true,
-			"SemVersion": "^3.12.0"
+			"SemVersion": "^3.12.1"
 		}
 	]
 }

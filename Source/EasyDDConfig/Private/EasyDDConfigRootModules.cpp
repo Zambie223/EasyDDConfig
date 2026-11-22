@@ -8,6 +8,7 @@
 #include "EasyDDAdminSync.h"
 #include "EasyDDConfigConstants.h"
 #include "EasyDDConfigRCO.h"
+#include "EasyDDLayoutGuard.h"
 #include "EasyDDConfigLog.h"
 #include "EasyDDConfigMath.h"
 #include "EasyDDConfigSubsystem.h"
@@ -17,7 +18,11 @@ UEasyDDConfigGameInstanceModule::UEasyDDConfigGameInstanceModule()
 {
 	bRootModule = true;
 	// The per-player channel a dedicated server's admin uses to send menu changes (SML registers it on the game mode).
-	RemoteCallObjects.Add(UEasyDDConfigRCO::StaticClass());
+	// Registered only if the game's RCO base class has the layout this mod was built against (our class extends it).
+	if (EasyDD::Layout::EngineBaseMatches() && EasyDD::Layout::RemoteCallObjectMatches())
+	{
+		RemoteCallObjects.Add(UEasyDDConfigRCO::StaticClass());
+	}
 }
 
 void UEasyDDConfigGameInstanceModule::DispatchLifecycleEvent(const ELifecyclePhase Phase)
@@ -111,5 +116,9 @@ void UEasyDDConfigGameInstanceModule::UpdateStackTooltip()
 UEasyDDConfigGameWorldModule::UEasyDDConfigGameWorldModule()
 {
 	bRootModule = true;
-	ModSubsystems.Add(AEasyDDConfigSubsystem::StaticClass());
+	// The subsystem extends AActor and reads UWorld inline; if either differs from the build, the mod stays out entirely.
+	if (EasyDD::Layout::EngineBaseMatches())
+	{
+		ModSubsystems.Add(AEasyDDConfigSubsystem::StaticClass());
+	}
 }

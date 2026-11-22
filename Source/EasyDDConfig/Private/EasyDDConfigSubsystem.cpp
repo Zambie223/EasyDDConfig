@@ -4,6 +4,7 @@
 #include "EasyDDConfigLog.h"
 #include "EasyDDConfigMath.h"
 #include "EasyDDConfigRCO.h"
+#include "EasyDDLayoutGuard.h"
 #include "EasyDDNetworkBatcher.h"
 #include "EasyDDUploadBooster.h"
 
@@ -60,10 +61,31 @@ namespace
 		return GetMutableDefault<UFGCentralStorageSettings>();
 	}
 
+	/**
+	 * The mod writes the depot settings' fields and binds the research delegate directly, so their positions are compiled
+	 * in. If a game patch moved them, the mod stays inactive (vanilla values) instead of writing the wrong memory.
+	 * Checked once per process.
+	 */
+	bool CoreLayoutMatches()
+	{
+		static const bool bMatches =
+			EasyDD::Layout::Matches(UFGCentralStorageSettings::StaticClass(), sizeof(UFGCentralStorageSettings),
+				{ EASYDD_FIELD(UFGCentralStorageSettings, mDefaultTimeToUpload), EASYDD_FIELD(UFGCentralStorageSettings, mMaxTimeToUploadPercentageDecrease),
+				  EASYDD_FIELD(UFGCentralStorageSettings, mDefaultItemStackLimit) }, TEXT("Easy DD Config (upload speed and stack settings)"))
+			&& EasyDD::Layout::Matches(AFGUnlockSubsystem::StaticClass(), sizeof(AFGUnlockSubsystem),
+				{ EASYDD_FIELD(AFGUnlockSubsystem, mOnCentralStorageItemStackLimitUnlocked) }, TEXT("Easy DD Config (upload speed and stack settings)"));
+		return bMatches;
+	}
+
 	void CaptureVanillaOnce()
 	{
 		if (GVanilla.bCaptured)
 		{
+			return;
+		}
+		if (!CoreLayoutMatches())
+		{
+			GVanilla.bCaptured = true; // Values stay zero, so IsValid() is false and nothing is ever written
 			return;
 		}
 		const UFGCentralStorageSettings* Settings = GetSettings();
@@ -245,9 +267,9 @@ void AEasyDDConfigSubsystem::Init()
 	{
 		++UploadersInWorld;
 	}
-	AFGCentralStorageSubsystem* CentralStorage = AFGCentralStorageSubsystem::Get(GetWorld());
-	UE_LOG(LogEasyDDConfig, Log, TEXT("Init on %s (uploaders in world: %d, registered with central storage: %d)"), NetModeName(GetWorld()),
-		UploadersInWorld, CentralStorage ? CentralStorage->GetCentralStorageContainers().Num() : -1);
+	// Not logged: the central storage's own uploader list. Its getter is FORCEINLINE (a field offset compiled into this
+	// mod, which a game patch can move), and uploaders only register in BeginPlay, so it was always 0 here anyway.
+	UE_LOG(LogEasyDDConfig, Log, TEXT("Init on %s (uploaders in world: %d)"), NetModeName(GetWorld()), UploadersInWorld);
 	CaptureVanillaOnce();
 	BindServerDelegates();
 	ApplyServer(TEXT("Init"));
@@ -514,7 +536,7 @@ void AEasyDDConfigSubsystem::BindServerDelegates()
 	}
 
 	AFGUnlockSubsystem* Unlock = AFGUnlockSubsystem::Get(World);
-	if (Unlock && BoundUnlockSubsystem.Get() != Unlock)
+	if (Unlock && BoundUnlockSubsystem.Get() != Unlock && CoreLayoutMatches())
 	{
 		if (AFGUnlockSubsystem* Old = BoundUnlockSubsystem.Get())
 		{
@@ -615,6 +637,10 @@ void AEasyDDConfigSubsystem::ApplyReplicatedValuesLocally()
 		return; // The host has not applied yet.
 	}
 	CaptureVanillaOnce();
+	if (!GVanilla.Values.IsValid())
+	{
+		return; // this game version's depot settings differ from the build (logged once), or the vanilla values were invalid
+	}
 	UFGCentralStorageSettings* Settings = GetSettings();
 	if (Settings->mDefaultTimeToUpload == AppliedDefaultTimeToUpload && Settings->mDefaultItemStackLimit == AppliedDefaultItemStackLimit && bWroteSettings)
 	{
@@ -657,7 +683,7 @@ namespace
 	void ShowLocalChat(UWorld* World, const FString& Text)
 	{
 		UE_LOG(LogEasyDDConfig, Log, TEXT("%s"), *Text);
-		if (AFGChatManager* Chat = World ? AFGChatManager::Get(World) : nullptr)
+		if (AFGChatManager* Chat = World && EasyDD::Layout::ChatMessageMatches() ? AFGChatManager::Get(World) : nullptr)
 		{
 			FChatMessageStruct Line;
 			Line.MessageType = EFGChatMessageType::CMT_SystemMessage;
@@ -806,7 +832,8 @@ void AEasyDDConfigSubsystem::SendMenuChanges()
 		return;
 	}
 	AFGPlayerController* PlayerController = GetWorld() ? Cast<AFGPlayerController>(GetWorld()->GetFirstPlayerController()) : nullptr;
-	UEasyDDConfigRCO* RCO = PlayerController ? PlayerController->GetRemoteCallObjectOfClass<UEasyDDConfigRCO>() : nullptr;
+	// The exported (non-template) lookup: the template version is inline and reads mRemoteCallObjects at a compiled offset.
+	UEasyDDConfigRCO* RCO = PlayerController ? Cast<UEasyDDConfigRCO>(PlayerController->GetRemoteCallObjectOfClass(UEasyDDConfigRCO::StaticClass())) : nullptr;
 	if (!RCO)
 	{
 		UE_LOG(LogEasyDDConfig, Warning, TEXT("Can't send menu changes to the server: no Easy DD Config channel on this player (does the server run the same version?)"));
@@ -1000,8 +1027,15 @@ void AEasyDDConfigSubsystem::DescribeStatus(FOutputDevice& Ar) const
 			: TEXT("  Config on this machine: ignored (client); the host's values apply"));
 	}
 	Lines.Add(FString::Printf(TEXT("  In effect: upload x%.2f, stacks x%.2f, research stack bonus %d"), AppliedUploadMultiplier, AppliedStackMultiplier, AppliedResearchStackBonus));
-	Lines.Add(FString::Printf(TEXT("  Settings now: mDefaultTimeToUpload=%.4f, mMaxTimeToUploadPercentageDecrease=%.2f, mDefaultItemStackLimit=%d"),
-		Settings->mDefaultTimeToUpload, Settings->mMaxTimeToUploadPercentageDecrease, Settings->mDefaultItemStackLimit));
+	if (CoreLayoutMatches())
+	{
+		Lines.Add(FString::Printf(TEXT("  Settings now: mDefaultTimeToUpload=%.4f, mMaxTimeToUploadPercentageDecrease=%.2f, mDefaultItemStackLimit=%d"),
+			Settings->mDefaultTimeToUpload, Settings->mMaxTimeToUploadPercentageDecrease, Settings->mDefaultItemStackLimit));
+	}
+	else
+	{
+		Lines.Add(TEXT("  Settings now: not read; this game version's depot settings differ from the version Easy DD Config was built for, so the mod is inactive (see the log; look for an update)"));
+	}
 
 	if (const AFGUnlockSubsystem* Unlock = AFGUnlockSubsystem::Get(World))
 	{

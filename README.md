@@ -4,7 +4,7 @@ Set the Dimensional Depot's **upload speed** and **stack limit** from the in-gam
 
 ## Installation
 
-You need Satisfactory 1.2 (build 517554 or newer) with Satisfactory Mod Loader (SML) 3.12 or newer installed.
+You need Satisfactory 1.2.5.1 (build 520140 or newer) with Satisfactory Mod Loader (SML) 3.12.1 or newer installed. On older game versions, use Easy DD Config 0.3.1.
 
 **The easy way:** install [Easy DD Config from the Satisfactory Mod Repository](https://ficsit.app/mod/EasyDDConfig) with [Satisfactory Mod Manager](https://github.com/satisfactorymodding/SatisfactoryModManager/releases/latest). It installs SML for you.
 
@@ -41,8 +41,6 @@ A multiplier of 1.0 behaves exactly like the base game. Multipliers are rounded 
 Turning the setting off clamps the multipliers back to the normal limits; nothing in the depot is deleted. Close and reopen the Mods menu after changing it, so the tooltips and limits shown are up to date.
 
 ## Multiplayer
-
-> **Known issue on game version 1.2.5.1:** the patch changed the game's network connection data, which **Batch depot network updates** reads, so a host or dedicated server on 1.2.5.1 can crash once a player is connected. Until a multiplayer update, turn **Batch depot network updates** off on 1.2.5.1 hosts and servers (Mod Options, or `EasyDD.Set BatchDepotNetworkUpdates false` on a server). Single player is not affected.
 
 - **Install the mod on the server or host and on every player's game.** Players without it can't join.
 - **The host's settings are used, or the server's on a dedicated server.** Changing Mod Options as a joined player does nothing while you are connected. Your own settings come back when you play your own world.
@@ -82,6 +80,7 @@ Dedicated servers have no menu of their own. Use any of these:
 - **Upload top-ups:** the base game uploads at most one item per uploader per game tick (60 per second at 60 frames per second; a dedicated server ticks 30 times a second by default). An uploader holds one stack and is filled by its belt, so this only matters when items arrive faster than the game ticks: with faster modded belts, on a server running at a low tick rate, or when a full uploader empties after the depot gets room again. Since 0.3.0, when an uploader is due more than one item in a tick, the mod uploads the rest through the game's own upload function, so the configured speed is reached in those cases too. It only acts when an item takes less than one tick to upload. `EasyDD.UploadTopUp 0` in the console turns it off. For reference, a Mk.6 belt carries 1,200 items/min (20 per second), which is ×5 at full research.
 - **Displayed upload rate:** the game's own rounding showed rates a hair low (e.g. "4,799.999 per min" at ×20 with all research). Since 0.3.0 the mod corrects the value the game displays, so every setting up to ×20 shows its exact rate. With extreme multipliers above about 8,000 items/min a tiny fraction can still show, because the game stores the time as a single-precision number.
 - **Other mods:** don't combine this mod with other mods that change the same depot settings. If something else overwrites them, this mod puts its values back within a few seconds and logs a warning.
+- **Game updates:** a game update can move data this mod reads directly. Since 0.3.2 the mod checks this when it starts: if something it relies on has changed, the affected part (the depot settings, network batching, admin menu sync or chat messages) stays off and the game log (`FactoryGame.log`) says which, with a line ending in "Look for an Easy DD Config update.", instead of crashing.
 - **Saves:** nothing is written into your save. Removing the mod returns the depot to vanilla values.
 - **Lowering the limit or removing the mod never deletes items.** If the depot holds more of an item than the new limit allows, everything stays and you can still take it out. Uploads of that item pause until the amount drops below the limit.
 
@@ -108,9 +107,15 @@ Version 0.3.0 was tested in single player and on Windows and Linux dedicated ser
 - **Displayed upload rate:** an uploader showed 4,800 per minute at ×20 with all research.
 - Both hooks also load on a Linux dedicated server.
 
-Version 0.3.1 was tested on game version 1.2.5.1 in single player and on a Windows dedicated server with no player connected, using the 660-uploader factory at ×20: upload top-ups worked again (0.3.0 recognised no uploaders on 1.2.5.1). Multiplayer has not been tested on 1.2.5.1; see the known issue under Multiplayer.
+Version 0.3.1 was tested on game version 1.2.5.1 in single player and on a Windows dedicated server with no player connected, using the 660-uploader factory at ×20: upload top-ups worked again (0.3.0 recognised no uploaders on 1.2.5.1).
 
-It has not been tested in an internet game across several PCs; all multiplayer tests ran on one PC. The network-load figures above may be worse over real connections.
+Version 0.3.2 was tested on game version 1.2.5.1 with SML 3.12.1, using the 660-uploader factory at ×20 upload speed and ×100 stack limit:
+- **Network batching, Linux dedicated server, one player joining over a simulated connection with 150 ms delay and 1% packet loss:** with batching on, the player joined and stayed connected, and the server ran normally. The factory made about 105,000 to 145,000 depot count updates a minute, sent as about 700 messages a minute while the player was loading in (sends waited while its queue peaked at 260 of the 511 limit) and about 3,000 a minute afterwards. With batching off, the server disconnected the player while it was loading in ("reliable buffer overflow"), so batching is still needed on 1.2.5.1.
+- **Upload top-ups:** about 1,150 extra items a second on a Windows dedicated server; working in single player.
+- The startup check reported no changes on 1.2.5.1, and every feature started.
+- Admin menu sync was not re-tested on 1.2.5.1.
+
+It has not been tested in an internet game across several PCs; all multiplayer tests ran on one PC, the 0.3.2 network test over a simulated slow connection. The network-load figures above may be worse over real connections.
 
 ## Building from source
 

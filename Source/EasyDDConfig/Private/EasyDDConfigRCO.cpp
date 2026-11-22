@@ -1,4 +1,5 @@
 #include "EasyDDConfigRCO.h"
+#include "EasyDDLayoutGuard.h"
 
 #include "EasyDDAdminSync.h"
 #include "EasyDDConfigLog.h"
@@ -64,7 +65,7 @@ void UEasyDDConfigRCO::Client_ConfigResult_Implementation(const bool bAccepted, 
 			Subsystem->OnAdminRequestRefused(); // put the server's values back into the menu
 		}
 	}
-	if (AFGChatManager* Chat = AFGChatManager::Get(GetWorld()))
+	if (AFGChatManager* Chat = EasyDD::Layout::ChatMessageMatches() ? AFGChatManager::Get(GetWorld()) : nullptr)
 	{
 		FChatMessageStruct Line;
 		Line.MessageType = EFGChatMessageType::CMT_SystemMessage;
