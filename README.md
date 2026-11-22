@@ -123,7 +123,7 @@ It has not been tested in an internet game across several PCs; all multiplayer t
 2. Clone this repository into the starter project as `Mods/EasyDDConfig`.
 3. Package it with Alpakit. Building the LinuxServer target also needs Unreal's Linux cross-compile toolchain.
 
-`Tools/create_config_asset.py` creates or updates the Mod Options asset (`Content/EasyDDConfiguration.uasset`) and `Tools/verify_config_asset.py` checks it. Both run headless in the editor, with instructions at the top of each file. `Tools/make_icon.py` redraws the icon and needs Python with Pillow.
+`Tools/create_config_asset.py` creates or updates the Mod Options asset (`Content/EasyDDConfiguration.uasset`) and `Tools/verify_config_asset.py` checks it. Both run headless in the editor, with instructions at the top of each file. The icon's source is `Branding/Icon.svg`; `Tools/make_icon.py` renders it to the PNG icons and needs Microsoft Edge or Google Chrome and Python with Pillow.
 
 ## License
 

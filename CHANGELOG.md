@@ -2,6 +2,11 @@
 
 Changes made after the first public release are listed here.
 
+## Unreleased
+
+### Changed
+- New icon: a glowing settings gear inside a wireframe cube. The Mod Options menu shows it from the next release. Its source is now `Branding/Icon.svg`, and `Tools/make_icon.py` renders it to the PNG icons.
+
 ## 0.3.2 (2026-11-21)
 
 Needs game version 1.2.5.1 (build 520140) or newer and SML 3.12.1 or newer. On older game versions, keep 0.3.1.
